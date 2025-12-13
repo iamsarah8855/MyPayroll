@@ -43,54 +43,6 @@ st.markdown("""
         white-space: nowrap;
     }
     
-    /* ====================================================================
-       MOBILE ULTRA-COMPACT LAYOUT (手机极度紧凑模式)
-       ==================================================================== */
-    @media (max-width: 800px) {
-        /* 1. 强制容器宽度变窄，消灭中间的空白 */
-        .main .block-container {
-            min-width: 380px !important; 
-            max-width: 100vw !important;
-            padding-left: 2px !important;
-            padding-right: 2px !important;
-            overflow-x: auto !important;
-        }
-        
-        html, body {
-            overflow-x: auto !important;
-        }
-
-        /* 2. 强制横向，且间距 (gap) 设为 0 */
-        div[data-testid="stHorizontalBlock"] {
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            gap: 2px !important; 
-        }
-        
-        /* 3. 允许列被压缩，并缩小字体 */
-        div[data-testid="column"] {
-            width: auto !important;
-            flex: 1 1 auto !important;
-            min-width: 0px !important;
-            padding: 0px !important;
-        }
-
-        /* 4. 缩小所有文字 */
-        div[data-testid="column"] p, 
-        div[data-testid="column"] span,
-        div[data-testid="column"] div {
-            font-size: 11px !important; 
-        }
-        
-        /* 5. 调整按钮大小 */
-        .stButton button {
-            padding: 0px 4px !important;
-            font-size: 10px !important;
-            height: 28px !important;
-            min-height: 28px !important;
-        }
-    }
-
     /* --- SIDEBAR --- */
     [data-testid="stSidebar"] { background-color: #1a1f36; }
     [data-testid="stSidebar"] * { color: #ffffff !important; }
@@ -123,6 +75,43 @@ st.markdown("""
     }
 
     .input-label-spacer { height: 28px; } 
+
+    /* ====================================================================
+       MOBILE EXCEL-LIKE SCROLL LAYOUT (手机强制横向滚动模式)
+       ==================================================================== */
+    @media (max-width: 800px) {
+        /* 1. 强制容器宽度变宽 (750px)，迫使用户左右滑动 (Excel手感) */
+        .main .block-container {
+            min-width: 750px !important; 
+            max-width: none !important;
+            padding-left: 10px !important;
+            padding-right: 10px !important;
+            overflow-x: auto !important;
+        }
+        
+        html, body {
+            overflow-x: auto !important;
+        }
+
+        /* 2. 强制横向排列，禁止折叠 */
+        div[data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            gap: 10px !important; 
+        }
+        
+        /* 3. 字体稍微调小适应紧凑感 */
+        div[data-testid="column"] p, 
+        div[data-testid="column"] span,
+        div[data-testid="column"] div {
+            font-size: 13px !important; 
+        }
+        
+        /* 4. 调整 Checkbox 在手机上的位置 */
+        [data-testid="stCheckbox"] {
+            margin-top: -10px !important;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -439,15 +428,17 @@ if check_password():
                 if rec:
                     curr_sym = info['currency'].split('(')[0]
                     row["Net Pay"] = f"{curr_sym} {rec['net_salary']:,.2f}"
+                    # [Removed Date Here]
                     row["Status"] = rec['status']
                 else:
                     row["Net Pay"] = "-"
+                    # [Removed Date Here]
                     row["Status"] = "Pending"
                 table_data.append(row)
                 idx_counter += 1
             
             if table_data:
-                # [MODIFICATION 1] No Scrollbar on Dashboard + Date Removed
+                # [Auto-Expand Table] Dynamic Height Calculation
                 df_dash = pd.DataFrame(table_data)
                 h_dash = (len(df_dash) + 1) * 35 + 3 
                 st.dataframe(df_dash, use_container_width=True, hide_index=True, height=h_dash)
@@ -567,13 +558,14 @@ if check_password():
             month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
             
             # [KEY RATIO ADJUSTMENT FOR TIGHTNESS] 
-            cols_ratio = [0.4, 2.5, 1.8, 1.6]
+            cols_ratio = [0.4, 2.5, 1.5, 1.2, 2.0]
             
-            h1, h2, h3, h4 = st.columns(cols_ratio)
+            h1, h2, h3, h4, h5 = st.columns(cols_ratio)
             h1.markdown("**No.**")
             h2.markdown("**Employee**")
             h3.markdown("**Net Pay**")
-            h4.markdown("**Status**") 
+            h4.markdown("**Status**")
+            h5.markdown("**Actions**")
             st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid #ccc;'>", unsafe_allow_html=True)
 
             idx_counter = 1
@@ -582,7 +574,7 @@ if check_password():
                 rec = month_recs.get(emp_id)
                 
                 with st.container():
-                    c1, c2, c3, c4 = st.columns(cols_ratio)
+                    c1, c2, c3, c4, c5 = st.columns(cols_ratio)
                     
                     c1.markdown(f"{idx_counter}")
                     c2.markdown(f"**{emp_id}**")
@@ -591,10 +583,11 @@ if check_password():
                         curr_sym = emp_static['currency'].split('(')[0]
                         c3.markdown(f"{curr_sym} {rec['net_salary']:,.2f}")
                         
-                        with c4:
-                            s_color = "green" if rec['status'] == 'Paid' else "orange"
-                            st.markdown(f":{s_color}[● {rec['status']}]")
-                            b1, b2 = st.columns(2)
+                        s_color = "green" if rec['status'] == 'Paid' else "orange"
+                        c4.markdown(f":{s_color}[{rec['status']}]")
+                        
+                        with c5:
+                            b1, b2, b3 = st.columns([1, 1, 1])
                             with b1:
                                 if st.button("✏️", key=f"edt_{emp_id}"):
                                     st.session_state.edit_target = emp_id
@@ -603,43 +596,21 @@ if check_password():
                                 pdf_bytes = create_pdf(rec, emp_static)
                                 safe_name = emp_id.replace(" ", "_")
                                 st.download_button("📥", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"dl_{emp_id}")
+                            with b3:
+                                is_paid = (rec['status'] == 'Paid')
+                                def update_status(rid=rec['id']):
+                                    for r in st.session_state.db['records']:
+                                        if r['id'] == rid: r['status'] = 'Unpaid' if r['status'] == 'Paid' else 'Paid'
+                                    save_db(st.session_state.db)
+                                st.checkbox("Paid", value=is_paid, key=f"chk_{emp_id}", on_change=update_status, args=(rec['id'],), label_visibility="collapsed")
 
                     else:
                         c3.markdown("-")
-                        with c4:
-                            st.markdown(":grey[Pending]")
+                        c4.markdown(":grey[Pending]")
+                        c5.markdown("-")
                     
                     st.markdown("<hr style='margin: 2px 0; border: none; border-top: 1px solid #e0e0e0;'>", unsafe_allow_html=True)
                     idx_counter += 1
-
-            # [MODIFICATION: EXPANDED ACTIONS - NO DROPDOWN]
-            st.markdown("### 🛠️ Actions (Manage)")
-            for emp_id in all_emps:
-                if emp_id in month_recs:
-                    rec = month_recs[emp_id]
-                    with st.container():
-                        # Layout: Name | Edit | Download | Checkbox
-                        # Ratios optimized for mobile row
-                        c1, c2, c3, c4 = st.columns([3, 1, 1, 2])
-                        
-                        c1.markdown(f"Manage: **{emp_id}**")
-                        
-                        if c2.button("✏️", key=f"act_edt_{emp_id}"):
-                            st.session_state.edit_target = emp_id
-                            st.rerun()
-                            
-                        pdf_bytes = create_pdf(rec, st.session_state.db['employees'][emp_id])
-                        safe_name = emp_id.replace(" ", "_")
-                        c3.download_button("📥", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"act_dl_{emp_id}")
-                        
-                        is_paid = (rec['status'] == 'Paid')
-                        def update_status(rid=rec['id']):
-                            for r in st.session_state.db['records']:
-                                if r['id'] == rid: r['status'] = 'Unpaid' if r['status'] == 'Paid' else 'Paid'
-                            save_db(st.session_state.db)
-                        c4.checkbox("Paid", value=is_paid, key=f"act_chk_{emp_id}", on_change=update_status, args=(rec['id'],))
-                    
-                    st.markdown("<hr style='margin: 2px 0; border: none; border-top: 1px solid #e0e0e0;'>", unsafe_allow_html=True)
 
 
     # --- MANAGE EMPLOYEES ---
@@ -680,7 +651,7 @@ if check_password():
             })
         
         if data_list:
-            # [MODIFICATION 3] Manage Employees Table - Auto Expand Height
+            # [Auto-Expand Table] Dynamic Height Calculation
             df = pd.DataFrame(data_list)
             h_manage = (len(df) + 1) * 35 + 3
             edited_df = st.data_editor(
