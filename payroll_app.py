@@ -44,14 +44,12 @@ st.markdown("""
     }
     
     /* ====================================================================
-       [关键修改] MOBILE ULTRA-COMPACT LAYOUT (手机极度紧凑模式)
-       1. 宽度缩小至 380px (刚好 iPhone 屏幕大小，甚至更小，逼迫内容挤在一起)
-       2. 字体缩小，边距归零
+       MOBILE ULTRA-COMPACT LAYOUT (手机极度紧凑模式)
        ==================================================================== */
     @media (max-width: 800px) {
         /* 1. 强制容器宽度变窄，消灭中间的空白 */
         .main .block-container {
-            min-width: 380px !important; /* 从 650 改为 380，拉近左右距离 */
+            min-width: 380px !important; 
             max-width: 100vw !important;
             padding-left: 2px !important;
             padding-right: 2px !important;
@@ -66,7 +64,7 @@ st.markdown("""
         div[data-testid="stHorizontalBlock"] {
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            gap: 0px !important; /* 彻底消除列间距 */
+            gap: 0px !important; 
         }
         
         /* 3. 允许列被压缩，并缩小字体 */
@@ -77,11 +75,11 @@ st.markdown("""
             padding: 0px !important;
         }
 
-        /* 4. 缩小所有文字，为了在窄屏里显示更多 */
+        /* 4. 缩小所有文字 */
         div[data-testid="column"] p, 
         div[data-testid="column"] span,
         div[data-testid="column"] div {
-            font-size: 11px !important; /* 字体变小 */
+            font-size: 11px !important; 
         }
         
         /* 5. 调整按钮大小 */
@@ -441,17 +439,17 @@ if check_password():
                 if rec:
                     curr_sym = info['currency'].split('(')[0]
                     row["Net Pay"] = f"{curr_sym} {rec['net_salary']:,.2f}"
-                    row["Date"] = format_date_short(rec["payment_date"])
+                    # [Removed Date Here]
                     row["Status"] = rec['status']
                 else:
                     row["Net Pay"] = "-"
-                    row["Date"] = "-"
+                    # [Removed Date Here]
                     row["Status"] = "Pending"
                 table_data.append(row)
                 idx_counter += 1
             
             if table_data:
-                # [MODIFICATION 1] No Scrollbar on Dashboard
+                # [Auto-Expand Table] Dynamic Height Calculation
                 df_dash = pd.DataFrame(table_data)
                 h_dash = (len(df_dash) + 1) * 35 + 3 
                 st.dataframe(df_dash, use_container_width=True, hide_index=True, height=h_dash)
@@ -565,17 +563,12 @@ if check_password():
 
             st.markdown("---")
             # ------------------------------------------------------------------
-            # 2. PAYSLIP RECORDS
-            # [Fix]: Tighter Ratios + Min-Width 380px for zero gaps
+            # 2. PAYSLIP RECORDS (Compact & Expanded)
             # ------------------------------------------------------------------
             st.subheader(f"2. Payslip Records ({sel_month} {sel_year})")
             month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
             
             # [KEY RATIO ADJUSTMENT FOR TIGHTNESS] 
-            # 0.4 = No
-            # 2.5 = Name
-            # 1.8 = Amount
-            # 1.6 = Action
             cols_ratio = [0.4, 2.5, 1.8, 1.6]
             
             h1, h2, h3, h4 = st.columns(cols_ratio)
@@ -660,7 +653,7 @@ if check_password():
             })
         
         if data_list:
-            # [MODIFICATION 4] No Scrollbar on Manage Employees
+            # [Auto-Expand Table] Dynamic Height Calculation
             df = pd.DataFrame(data_list)
             h_manage = (len(df) + 1) * 35 + 3
             edited_df = st.data_editor(
