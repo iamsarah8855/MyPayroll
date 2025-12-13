@@ -77,15 +77,15 @@ st.markdown("""
     .input-label-spacer { height: 28px; } 
 
     /* ====================================================================
-       MOBILE EXCEL-LIKE SCROLL LAYOUT (手机强制横向滚动模式)
+       MOBILE ULTRA-COMPACT LAYOUT (手机极度紧凑模式)
        ==================================================================== */
     @media (max-width: 800px) {
-        /* 1. 强制容器宽度变宽 (750px)，迫使用户左右滑动 (Excel手感) */
+        /* 1. 强制容器宽度变窄，消灭中间的空白 */
         .main .block-container {
-            min-width: 750px !important; 
-            max-width: none !important;
-            padding-left: 10px !important;
-            padding-right: 10px !important;
+            min-width: 380px !important; 
+            max-width: 100vw !important;
+            padding-left: 2px !important;
+            padding-right: 2px !important;
             overflow-x: auto !important;
         }
         
@@ -93,23 +93,34 @@ st.markdown("""
             overflow-x: auto !important;
         }
 
-        /* 2. 强制横向排列，禁止折叠 */
+        /* 2. 强制横向，且间距 (gap) 设为 0 */
         div[data-testid="stHorizontalBlock"] {
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            gap: 10px !important; 
+            gap: 0px !important; 
         }
         
-        /* 3. 字体稍微调小适应紧凑感 */
+        /* 3. 允许列被压缩，并缩小字体 */
+        div[data-testid="column"] {
+            width: auto !important;
+            flex: 1 1 auto !important;
+            min-width: 0px !important;
+            padding: 0px !important;
+        }
+
+        /* 4. 缩小所有文字 */
         div[data-testid="column"] p, 
         div[data-testid="column"] span,
         div[data-testid="column"] div {
-            font-size: 13px !important; 
+            font-size: 11px !important; 
         }
         
-        /* 4. 调整 Checkbox 在手机上的位置 */
-        [data-testid="stCheckbox"] {
-            margin-top: -10px !important;
+        /* 5. 调整按钮大小 */
+        .stButton button {
+            padding: 0px 4px !important;
+            font-size: 10px !important;
+            height: 28px !important;
+            min-height: 28px !important;
         }
     }
 </style>
@@ -428,11 +439,9 @@ if check_password():
                 if rec:
                     curr_sym = info['currency'].split('(')[0]
                     row["Net Pay"] = f"{curr_sym} {rec['net_salary']:,.2f}"
-                    # [Removed Date Here]
                     row["Status"] = rec['status']
                 else:
                     row["Net Pay"] = "-"
-                    # [Removed Date Here]
                     row["Status"] = "Pending"
                 table_data.append(row)
                 idx_counter += 1
@@ -552,65 +561,111 @@ if check_password():
 
             st.markdown("---")
             # ------------------------------------------------------------------
-            # 2. PAYSLIP RECORDS (Compact & Expanded)
+            # 2. PAYSLIP RECORDS (EXCEL-STYLE DATA EDITOR)
             # ------------------------------------------------------------------
             st.subheader(f"2. Payslip Records ({sel_month} {sel_year})")
             month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
             
-            # [KEY RATIO ADJUSTMENT FOR TIGHTNESS] 
-            cols_ratio = [0.4, 2.5, 1.5, 1.2, 2.0]
-            
-            h1, h2, h3, h4, h5 = st.columns(cols_ratio)
-            h1.markdown("**No.**")
-            h2.markdown("**Employee**")
-            h3.markdown("**Net Pay**")
-            h4.markdown("**Status**")
-            h5.markdown("**Actions**")
-            st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid #ccc;'>", unsafe_allow_html=True)
-
+            # Create Table Data for Data Editor
+            table_data_list = []
             idx_counter = 1
             for emp_id in all_emps:
                 emp_static = st.session_state.db['employees'][emp_id]
                 rec = month_recs.get(emp_id)
                 
-                with st.container():
-                    c1, c2, c3, c4, c5 = st.columns(cols_ratio)
-                    
-                    c1.markdown(f"{idx_counter}")
-                    c2.markdown(f"**{emp_id}**")
+                row_data = {
+                    "No.": idx_counter,
+                    "Employee": emp_id,
+                    "Net Pay": 0.0,
+                    "Paid": False,
+                    "✏️": False,
+                    "📥": False
+                }
+                
+                if rec:
+                    row_data["Net Pay"] = float(rec['net_salary'])
+                    row_data["Paid"] = True if rec['status'] == 'Paid' else False
+                else:
+                    row_data["Net Pay"] = 0.0
+                    row_data["Paid"] = False
+                
+                table_data_list.append(row_data)
+                idx_counter += 1
+            
+            if table_data_list:
+                df_payslip = pd.DataFrame(table_data_list)
+                
+                # Auto-height
+                h_payslip = (len(df_payslip) + 1) * 35 + 3
+                
+                edited_payslip = st.data_editor(
+                    df_payslip,
+                    use_container_width=True,
+                    height=h_payslip,
+                    column_config={
+                        "No.": st.column_config.NumberColumn(width="small", disabled=True),
+                        "Employee": st.column_config.TextColumn(width="medium", disabled=True),
+                        "Net Pay": st.column_config.NumberColumn(format="%.2f", disabled=True),
+                        "Paid": st.column_config.CheckboxColumn(label="Paid", help="Toggle Paid Status"),
+                        "✏️": st.column_config.CheckboxColumn(label="✏️", help="Edit"),
+                        "📥": st.column_config.CheckboxColumn(label="📥", help="Generate PDF")
+                    },
+                    hide_index=True
+                )
+                
+                # PROCESS ACTIONS
+                # 1. Update Paid Status
+                status_changed = False
+                for index, row in edited_payslip.iterrows():
+                    emp_name = row['Employee']
+                    new_paid = row['Paid']
+                    rec = month_recs.get(emp_name)
                     
                     if rec:
-                        curr_sym = emp_static['currency'].split('(')[0]
-                        c3.markdown(f"{curr_sym} {rec['net_salary']:,.2f}")
-                        
-                        s_color = "green" if rec['status'] == 'Paid' else "orange"
-                        c4.markdown(f":{s_color}[{rec['status']}]")
-                        
-                        with c5:
-                            b1, b2, b3 = st.columns([1, 1, 1])
-                            with b1:
-                                if st.button("✏️", key=f"edt_{emp_id}"):
-                                    st.session_state.edit_target = emp_id
-                                    st.rerun()
-                            with b2:
-                                pdf_bytes = create_pdf(rec, emp_static)
-                                safe_name = emp_id.replace(" ", "_")
-                                st.download_button("📥", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"dl_{emp_id}")
-                            with b3:
-                                is_paid = (rec['status'] == 'Paid')
-                                def update_status(rid=rec['id']):
-                                    for r in st.session_state.db['records']:
-                                        if r['id'] == rid: r['status'] = 'Unpaid' if r['status'] == 'Paid' else 'Paid'
-                                    save_db(st.session_state.db)
-                                st.checkbox("Paid", value=is_paid, key=f"chk_{emp_id}", on_change=update_status, args=(rec['id'],), label_visibility="collapsed")
-
+                        current_status = rec['status']
+                        # If Checkbox is True but Status is Unpaid -> Update to Paid
+                        if new_paid and current_status != 'Paid':
+                            rec['status'] = 'Paid'
+                            status_changed = True
+                        # If Checkbox is False but Status is Paid -> Update to Unpaid
+                        elif not new_paid and current_status == 'Paid':
+                            rec['status'] = 'Unpaid'
+                            status_changed = True
+                
+                if status_changed:
+                    # Update DB record list
+                    for i, r in enumerate(st.session_state.db['records']):
+                        if r['id'] in [month_recs[e]['id'] for e in month_recs]:
+                             # Find matching record in month_recs and update
+                             if r['id'] == month_recs[r['employee_id']]['id']:
+                                 r['status'] = month_recs[r['employee_id']]['status']
+                    save_db(st.session_state.db)
+                    st.toast("Status Updated!")
+                    # No rerun needed if we want smooth UX, but rerunning ensures sync
+                
+                # 2. Handle Edit Click
+                rows_to_edit = edited_payslip[edited_payslip['✏️'] == True]
+                if not rows_to_edit.empty:
+                    target = rows_to_edit.iloc[0]['Employee']
+                    st.session_state.edit_target = target
+                    st.rerun()
+                
+                # 3. Handle Download Click
+                rows_to_download = edited_payslip[edited_payslip['📥'] == True]
+                if not rows_to_download.empty:
+                    target = rows_to_download.iloc[0]['Employee']
+                    if target in month_recs:
+                        rec = month_recs[target]
+                        pdf_bytes = create_pdf(rec, st.session_state.db['employees'][target])
+                        safe_name = target.replace(" ", "_")
+                        st.download_button(
+                            label=f"⬇️ Download PDF for {target}",
+                            data=pdf_bytes,
+                            file_name=f"Payslip_{safe_name}.pdf",
+                            mime="application/pdf"
+                        )
                     else:
-                        c3.markdown("-")
-                        c4.markdown(":grey[Pending]")
-                        c5.markdown("-")
-                    
-                    st.markdown("<hr style='margin: 2px 0; border: none; border-top: 1px solid #e0e0e0;'>", unsafe_allow_html=True)
-                    idx_counter += 1
+                        st.warning("No record found to download.")
 
 
     # --- MANAGE EMPLOYEES ---
