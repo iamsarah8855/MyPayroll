@@ -369,6 +369,13 @@ if check_password():
         pdf.cell(0, 5, "This is computer generated no signature required.", 0, 1, 'C')
         return pdf.output(dest='S').encode('latin-1', errors='replace')
 
+    # [NEW] POP-UP DIALOG FOR DOWNLOAD
+    @st.dialog("📄 Download Payslip")
+    def show_download_dialog(record, emp_static, file_name):
+        st.write(f"Ready to download payslip for **{emp_static['name']}**")
+        pdf_bytes = create_pdf(record, emp_static)
+        st.download_button("Click to Download PDF", data=pdf_bytes, file_name=file_name, mime="application/pdf", type="primary", use_container_width=True)
+
     # --- SIDEBAR NAV (JS Optimized) ---
     with st.sidebar:
         st.markdown("<h1>SDG Tech</h1>", unsafe_allow_html=True)
@@ -447,7 +454,7 @@ if check_password():
                 idx_counter += 1
             
             if table_data:
-                # [Auto-Expand Table] Dynamic Height Calculation
+                # [Auto-Expand Table]
                 df_dash = pd.DataFrame(table_data)
                 h_dash = (len(df_dash) + 1) * 35 + 3 
                 st.dataframe(df_dash, use_container_width=True, hide_index=True, height=h_dash)
@@ -561,47 +568,28 @@ if check_password():
 
             st.markdown("---")
             # ------------------------------------------------------------------
-            # 2. PAYSLIP RECORDS (EXCEL-STYLE DATA EDITOR)
+            # 2. PAYSLIP RECORDS (EXCEL-STYLE + POPUP DOWNLOAD)
             # ------------------------------------------------------------------
             st.subheader(f"2. Payslip Records ({sel_month} {sel_year})")
             month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
             
-            # Create Table Data for Data Editor
             table_data_list = []
             idx_counter = 1
             for emp_id in all_emps:
                 emp_static = st.session_state.db['employees'][emp_id]
                 rec = month_recs.get(emp_id)
-                
-                row_data = {
-                    "No.": idx_counter,
-                    "Employee": emp_id,
-                    "Net Pay": 0.0,
-                    "Paid": False,
-                    "✏️": False,
-                    "📥": False
-                }
-                
+                row_data = {"No.": idx_counter, "Employee": emp_id, "Net Pay": 0.0, "Paid": False, "✏️": False, "📥": False}
                 if rec:
                     row_data["Net Pay"] = float(rec['net_salary'])
                     row_data["Paid"] = True if rec['status'] == 'Paid' else False
-                else:
-                    row_data["Net Pay"] = 0.0
-                    row_data["Paid"] = False
-                
                 table_data_list.append(row_data)
                 idx_counter += 1
             
             if table_data_list:
                 df_payslip = pd.DataFrame(table_data_list)
-                
-                # Auto-height
                 h_payslip = (len(df_payslip) + 1) * 35 + 3
-                
                 edited_payslip = st.data_editor(
-                    df_payslip,
-                    use_container_width=True,
-                    height=h_payslip,
+                    df_payslip, use_container_width=True, height=h_payslip,
                     column_config={
                         "No.": st.column_config.NumberColumn(width="small", disabled=True),
                         "Employee": st.column_config.TextColumn(width="medium", disabled=True),
@@ -609,64 +597,29 @@ if check_password():
                         "Paid": st.column_config.CheckboxColumn(label="Paid", help="Toggle Paid Status"),
                         "✏️": st.column_config.CheckboxColumn(label="✏️", help="Edit"),
                         "📥": st.column_config.CheckboxColumn(label="📥", help="Generate PDF")
-                    },
-                    hide_index=True
+                    }, hide_index=True
                 )
                 
-                # PROCESS ACTIONS
-                # 1. Update Paid Status
+                # LOGIC
                 status_changed = False
                 for index, row in edited_payslip.iterrows():
-                    emp_name = row['Employee']
-                    new_paid = row['Paid']
-                    rec = month_recs.get(emp_name)
-                    
+                    emp_name = row['Employee']; new_paid = row['Paid']; rec = month_recs.get(emp_name)
                     if rec:
-                        current_status = rec['status']
-                        # If Checkbox is True but Status is Unpaid -> Update to Paid
-                        if new_paid and current_status != 'Paid':
-                            rec['status'] = 'Paid'
-                            status_changed = True
-                        # If Checkbox is False but Status is Paid -> Update to Unpaid
-                        elif not new_paid and current_status == 'Paid':
-                            rec['status'] = 'Unpaid'
-                            status_changed = True
-                
-                if status_changed:
-                    # Update DB record list
-                    for i, r in enumerate(st.session_state.db['records']):
-                        if r['id'] in [month_recs[e]['id'] for e in month_recs]:
-                             # Find matching record in month_recs and update
-                             if r['id'] == month_recs[r['employee_id']]['id']:
-                                 r['status'] = month_recs[r['employee_id']]['status']
-                    save_db(st.session_state.db)
-                    st.toast("Status Updated!")
-                    # No rerun needed if we want smooth UX, but rerunning ensures sync
-                
-                # 2. Handle Edit Click
+                        if new_paid and rec['status'] != 'Paid': rec['status'] = 'Paid'; status_changed = True
+                        elif not new_paid and rec['status'] == 'Paid': rec['status'] = 'Unpaid'; status_changed = True
+                if status_changed: save_db(st.session_state.db); st.toast("Status Updated!")
+
                 rows_to_edit = edited_payslip[edited_payslip['✏️'] == True]
-                if not rows_to_edit.empty:
-                    target = rows_to_edit.iloc[0]['Employee']
-                    st.session_state.edit_target = target
-                    st.rerun()
+                if not rows_to_edit.empty: st.session_state.edit_target = rows_to_edit.iloc[0]['Employee']; st.rerun()
                 
-                # 3. Handle Download Click
+                # [POP-UP DOWNLOAD LOGIC]
                 rows_to_download = edited_payslip[edited_payslip['📥'] == True]
                 if not rows_to_download.empty:
                     target = rows_to_download.iloc[0]['Employee']
                     if target in month_recs:
                         rec = month_recs[target]
-                        pdf_bytes = create_pdf(rec, st.session_state.db['employees'][target])
                         safe_name = target.replace(" ", "_")
-                        st.download_button(
-                            label=f"⬇️ Download PDF for {target}",
-                            data=pdf_bytes,
-                            file_name=f"Payslip_{safe_name}.pdf",
-                            mime="application/pdf"
-                        )
-                    else:
-                        st.warning("No record found to download.")
-
+                        show_download_dialog(rec, st.session_state.db['employees'][target], f"Payslip_{safe_name}.pdf")
 
     # --- MANAGE EMPLOYEES ---
     elif page == "Manage Employees":
