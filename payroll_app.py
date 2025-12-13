@@ -19,11 +19,9 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # --- 注入 JS 脚本：专门解决手机 Sidebar 不自动收回的问题 ---
 st.markdown("""
 <script>
-    // 监听 Radio Button 的点击事件
     const radios = window.parent.document.querySelectorAll('input[type="radio"]');
     radios.forEach(radio => {
         radio.addEventListener('click', () => {
-            // 找到 Sidebar 的关闭按钮并模拟点击
             const closeBtn = window.parent.document.querySelector('button[kind="header"]');
             if (closeBtn) {
                 closeBtn.click();
@@ -59,19 +57,23 @@ st.markdown("""
     .metric-label { font-size: 14px; font-weight: 500; opacity: 0.9; margin-bottom: 5px; }
     .metric-value { font-size: 28px; font-weight: 700; }
 
-    /* --- STATUS PILLS --- */
-    .pill-paid { 
-        background-color: #e6f4ea; color: #1e7e34; 
-        padding: 3px 10px; border-radius: 20px; 
-        font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
-        display: inline-block;
+    /* --- COMPACT BUTTONS & ROWS --- */
+    .stButton button {
+        height: 32px !important; 
+        padding-top: 0px !important;
+        padding-bottom: 0px !important;
+        line-height: 1 !important;
+        border-radius: 4px;
     }
-    .pill-pending { 
-        background-color: #fff3cd; color: #856404; 
-        padding: 3px 10px; border-radius: 20px; 
-        font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
-        display: inline-block;
+    
+    /* 调整列内容的垂直对齐，使其看起来像表格 */
+    div[data-testid="column"] > div {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        height: 100%;
     }
+
     .input-label-spacer { height: 28px; } 
 </style>
 """, unsafe_allow_html=True)
@@ -399,9 +401,9 @@ if check_password():
                 idx_counter += 1
             
             if table_data:
-                # [MODIFICATION 1] Dashboard Table - Calculate Height to remove scrollbar
+                # [MODIFICATION 1] No Scrollbar
                 df_dash = pd.DataFrame(table_data)
-                h_dash = (len(df_dash) + 1) * 35 + 3 # Header + Rows + Buffer
+                h_dash = (len(df_dash) + 1) * 35 + 3 
                 st.dataframe(df_dash, use_container_width=True, hide_index=True, height=h_dash)
             else:
                 st.info("No data available.")
@@ -515,62 +517,61 @@ if check_password():
             st.subheader(f"2. Payslip Records ({sel_month} {sel_year})")
             month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
             
-            # --- PAYSLIP TABLE ---
-            table_rows = []
-            idx_counter = 1 
+            # --- [CUSTOM EXCEL-LIKE LAYOUT] ---
+            # Columns: No | Name | Net Pay | Status | Actions
+            h1, h2, h3, h4, h5 = st.columns([0.5, 3, 2, 1.5, 1.5])
+            h1.markdown("**No.**")
+            h2.markdown("**Employee**")
+            h3.markdown("**Net Pay**")
+            h4.markdown("**Status**")
+            h5.markdown("**Actions**")
+            st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid #ccc;'>", unsafe_allow_html=True)
+
+            idx_counter = 1
             for emp_id in all_emps:
                 emp_static = st.session_state.db['employees'][emp_id]
                 rec = month_recs.get(emp_id)
                 
-                if rec:
-                    curr_sym = emp_static['currency'].split('(')[0]
-                    row = {
-                        "No.": idx_counter,
-                        "Employee": emp_id,
-                        "Net Pay": f"{curr_sym} {rec['net_salary']:,.2f}",
-                        # [MODIFICATION 2] Removed "Date"
-                        "Status": "✅ Paid" if rec['status'] == 'Paid' else "⏳ Pending"
-                    }
-                else:
-                    row = {
-                        "No.": idx_counter,
-                        "Employee": emp_id,
-                        "Net Pay": "-",
-                        # [MODIFICATION 2] Removed "Date"
-                        "Status": "Unprocessed"
-                    }
-                table_rows.append(row)
-                idx_counter += 1
-            
-            # Overview Table
-            if table_rows:
-                # [MODIFICATION 3] Payslip Table - Calculate Height to remove scrollbar
-                df_pay = pd.DataFrame(table_rows)
-                h_pay = (len(df_pay) + 1) * 35 + 3
-                st.dataframe(df_pay, use_container_width=True, hide_index=True, height=h_pay)
-            
-            # Actions Area
-            st.markdown("### 🛠️ Actions (Manage)")
-            for emp_id in all_emps:
-                if emp_id in month_recs:
-                    rec = month_recs[emp_id]
-                    with st.expander(f"Manage: {emp_id}"):
-                        # [FIX] Buttons side-by-side [1, 1, 5] ratio
-                        c_a, c_b, c_space = st.columns([1, 1, 5])
+                # Create a row container
+                with st.container():
+                    c1, c2, c3, c4, c5 = st.columns([0.5, 3, 2, 1.5, 1.5])
+                    
+                    # 1. No.
+                    c1.markdown(f"{idx_counter}")
+                    
+                    # 2. Name
+                    c2.markdown(f"**{emp_id}**")
+                    
+                    if rec:
+                        # 3. Net Pay
+                        curr_sym = emp_static['currency'].split('(')[0]
+                        c3.markdown(f"{curr_sym} {rec['net_salary']:,.2f}")
                         
-                        if c_a.button("Edit", key=f"edt_{emp_id}"): 
-                            st.session_state.edit_target = emp_id; st.rerun()
+                        # 4. Status
+                        s_color = "green" if rec['status'] == 'Paid' else "orange"
+                        c4.markdown(f":{s_color}[{rec['status']}]")
                         
-                        pdf_bytes = create_pdf(rec, st.session_state.db['employees'][emp_id])
-                        safe_name = emp_id.replace(" ", "_")
-                        c_b.download_button("Download", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"btn_{emp_id}")
-                        
-                        is_paid = (rec['status'] == 'Paid')
-                        def update_status(rid=rec['id']):
-                            for r in st.session_state.db['records']:
-                                if r['id'] == rid: r['status'] = 'Unpaid' if r['status'] == 'Paid' else 'Paid'
-                            save_db(st.session_state.db)
-                        st.checkbox("Mark as Paid", value=is_paid, key=f"chk_{emp_id}", on_change=update_status, args=(rec['id'],))
+                        # 5. Actions (Nested columns for buttons)
+                        with c5:
+                            b1, b2 = st.columns(2)
+                            # Edit Button
+                            if b1.button("✏️", key=f"edt_{emp_id}"):
+                                st.session_state.edit_target = emp_id
+                                st.rerun()
+                            # Download Button
+                            pdf_bytes = create_pdf(rec, emp_static)
+                            safe_name = emp_id.replace(" ", "_")
+                            b2.download_button("📥", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"dl_{emp_id}")
+
+                    else:
+                        c3.markdown("-")
+                        c4.markdown("Pending")
+                        c5.markdown("-")
+                    
+                    # Tight Row Divider
+                    st.markdown("<hr style='margin: 2px 0; border: none; border-top: 1px solid #e0e0e0;'>", unsafe_allow_html=True)
+                    idx_counter += 1
+
 
     # --- MANAGE EMPLOYEES ---
     elif page == "Manage Employees":
@@ -610,7 +611,7 @@ if check_password():
             })
         
         if data_list:
-            # [MODIFICATION 4] Manage Employees Table - Calculate Height to remove scrollbar
+            # [MODIFICATION 4] No Scrollbar
             df = pd.DataFrame(data_list)
             h_manage = (len(df) + 1) * 35 + 3
             edited_df = st.data_editor(
