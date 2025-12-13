@@ -19,11 +19,9 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # --- 注入 JS 脚本：专门解决手机 Sidebar 不自动收回的问题 ---
 st.markdown("""
 <script>
-    // 监听 Radio Button 的点击事件
     const radios = window.parent.document.querySelectorAll('input[type="radio"]');
     radios.forEach(radio => {
         radio.addEventListener('click', () => {
-            // 找到 Sidebar 的关闭按钮并模拟点击
             const closeBtn = window.parent.document.querySelector('button[kind="header"]');
             if (closeBtn) {
                 closeBtn.click();
@@ -59,17 +57,29 @@ st.markdown("""
     .metric-label { font-size: 14px; font-weight: 500; opacity: 0.9; margin-bottom: 5px; }
     .metric-value { font-size: 28px; font-weight: 700; }
 
-    /* --- BUTTON TWEAKS --- */
+    /* --- [修改 1] BUTTON & ROW COMPACTING --- */
     .stButton button {
-        height: 38px;
+        height: 32px !important; /* 稍微调小按钮高度 */
         padding-top: 0px !important;
         padding-bottom: 0px !important;
+        line-height: 1 !important;
     }
+    
     /* 垂直居中列内容 */
     [data-testid="column"] {
         display: flex;
         flex-direction: column;
         justify-content: center;
+    }
+
+    /* 强制减少 Payslip Records 每一行的间距 */
+    div[data-testid="stVerticalBlock"] > div {
+        margin-bottom: -15px !important; /* 这是一个负边距技巧，拉近行距 */
+    }
+    
+    /* 恢复最顶部的间距，避免内容撞到 Header */
+    .main .block-container {
+        padding-top: 2rem; 
     }
 
     .input-label-spacer { height: 28px; } 
@@ -505,18 +515,19 @@ if check_password():
         h4.markdown("**Status**")
         h5.markdown("") # Edit placeholder
         h6.markdown("") # PDF placeholder
-        st.divider()
+        st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid #ccc;'>", unsafe_allow_html=True)
 
         idx_counter = 1
         for emp_id in all_emps:
             emp_static = st.session_state.db['employees'][emp_id]
             rec = month_recs.get(emp_id)
             
+            # [修改 2] 更紧凑的容器
             with st.container():
                 c1, c2, c3, c4, c5, c6 = st.columns([0.5, 3, 2, 1.5, 0.8, 0.8])
                 
-                # 1. Number
-                c1.text(f"{idx_counter}")
+                # 1. Number (Use markdown for consistency)
+                c1.markdown(f"{idx_counter}")
                 
                 # 2. Name (Bold)
                 c2.markdown(f"**{emp_id}**")
@@ -524,7 +535,8 @@ if check_password():
                 if rec:
                     curr_sym = emp_static['currency'].split('(')[0]
                     # 3. Net Pay (Left Aligned)
-                    c3.text(f"{curr_sym} {rec['net_salary']:,.2f}")
+                    # [修改 3] 使用 Markdown 替代 Text 以便减少行高
+                    c3.markdown(f"{curr_sym} {rec['net_salary']:,.2f}")
                     
                     # 4. Status (Colored)
                     status_color = "green" if rec['status'] == 'Paid' else "orange"
@@ -541,12 +553,13 @@ if check_password():
                     c6.download_button("📥", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"dl_{emp_id}")
                 
                 else:
-                    c3.text("-")
-                    c4.text("Pending")
-                    c5.text("-")
-                    c6.text("-")
+                    c3.markdown("-")
+                    c4.markdown("Pending")
+                    c5.markdown("-")
+                    c6.markdown("-")
                 
-                st.divider()
+                # [修改 4] 核心改动：用自定义HTML细线代替 st.divider()
+                st.markdown("<hr style='margin: 2px 0; border: none; border-top: 1px solid #e0e0e0;'>", unsafe_allow_html=True)
                 idx_counter += 1
 
     # --- MANAGE EMPLOYEES ---
