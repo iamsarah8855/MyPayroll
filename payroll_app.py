@@ -264,8 +264,10 @@ if check_password():
     def get_last_record(emp_id, db):
         emp_records = [r for r in db['records'] if r['employee_id'] == emp_id]
         if not emp_records: return None
-        return sorted(emp_records, key=lambda x: x['id'])[-1]
-
+        # [FIX] Sort by payment_date (YYYY-MM-DD) instead of ID string
+        # 修复：按支付日期排序，确保真正取到时间上最后一张单，而不是字母排序的最后一张
+        return sorted(emp_records, key=lambda x: x['payment_date'])[-1]
+        
     def convert_record_to_myr(record, default_rate):
         try:
             currency = str(record.get('currency', '')).upper()
