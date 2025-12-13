@@ -624,7 +624,7 @@ if check_password():
         st.markdown("### Add New Employee")
         with st.container():
             c1, c2 = st.columns(2); name = c1.text_input("Name"); role = c2.text_input("Designation")
-            c3, c4 = st.columns(2); join = c3.date_input("Join Date"); dob = c4.date_input("Date of Birth")
+            c3, c4 = st.columns(2); join = c3.date_input("Join Date", min_value=date(1980,1,1)); dob = c4.date_input("Date of Birth", min_value=date(1900,1,1), max_value=date.today())
             c5, c6 = st.columns(2); curr = c5.selectbox("Currency", ["RM (MYR)", "$ (USD)"]); bank = c6.text_input("Bank")
             c7, c8 = st.columns(2); acc = c7.text_input("A/C No"); 
             if st.button("Save New Employee", type="primary"):
@@ -711,7 +711,7 @@ if check_password():
                         
                         try: def_dob = datetime.strptime(curr_data.get('date_of_birth', ''), "%d %b %Y").date()
                         except: def_dob = date.today()
-                        new_dob = st.date_input("Date of Birth", value=def_dob)
+                        new_dob = st.date_input("Date of Birth", value=def_dob, min_value=date(1900,1,1), max_value=date.today())
 
                         st.markdown("**Last Increment**"); ci1, ci2 = st.columns(2)
                         try: def_inc_date = datetime.strptime(curr_data['last_increment']['date'], "%d %b %Y").date()
