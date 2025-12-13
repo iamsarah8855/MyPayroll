@@ -220,9 +220,11 @@ if check_password():
             return default_db
 
     def save_db(data):
+        # 1. Update Settings
         df_set = pd.DataFrame([{"usd_rate": data['settings']['usd_rate']}])
         conn.update(worksheet="Settings", data=df_set)
 
+        # 2. Update Employees
         emp_list = []
         for name, info in data['employees'].items():
             emp_list.append({
@@ -239,9 +241,14 @@ if check_password():
                 "last_increment": json.dumps(info['last_increment']) if info['last_increment'] else None,
                 "last_bonus": json.dumps(info['last_bonus']) if info['last_bonus'] else None
             })
-        if emp_list:
-            conn.update(worksheet="Employees", data=pd.DataFrame(emp_list))
         
+        if emp_list:
+            # [CRITICAL FIX] .fillna("") 解决 gspread.exceptions.APIError
+            # Google Sheets API 不接受 NaN (Not a Number)，必须替换成空字符串
+            df_emp = pd.DataFrame(emp_list).fillna("")
+            conn.update(worksheet="Employees", data=df_emp)
+        
+        # 3. Update Records
         rec_list = []
         for r in data['records']:
             rec_list.append({
@@ -257,17 +264,20 @@ if check_password():
                 "status": r['status'],
                 "exchange_rate": r['exchange_rate']
             })
+        
         if rec_list:
-            conn.update(worksheet="Records", data=pd.DataFrame(rec_list))
+            # [CRITICAL FIX] 同样加上 .fillna("") 保护记录表
+            df_rec = pd.DataFrame(rec_list).fillna("")
+            conn.update(worksheet="Records", data=df_rec)
+            
         st.cache_data.clear()
 
     def get_last_record(emp_id, db):
         emp_records = [r for r in db['records'] if r['employee_id'] == emp_id]
         if not emp_records: return None
-        # [FIX] Sort by payment_date (YYYY-MM-DD) instead of ID string
-        # 修复：按支付日期排序，确保真正取到时间上最后一张单，而不是字母排序的最后一张
+        # [FIX] Sort by payment_date (YYYY-MM-DD) to fix January/December issue
         return sorted(emp_records, key=lambda x: x['payment_date'])[-1]
-        
+
     def convert_record_to_myr(record, default_rate):
         try:
             currency = str(record.get('currency', '')).upper()
