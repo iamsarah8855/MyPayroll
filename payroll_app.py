@@ -44,35 +44,52 @@ st.markdown("""
     }
     
     /* ====================================================================
-       [关键修改] MOBILE FORCE WIDESCREEN (手机强制宽屏模式)
-       这会让手机上的内容宽度固定为 680px，从而实现“整体左右滑动”的效果。
-       表头和内容绝对对齐，不会乱跑。
+       [关键修改] MOBILE ULTRA-COMPACT LAYOUT (手机极度紧凑模式)
+       1. 宽度缩小至 380px (刚好 iPhone 屏幕大小，甚至更小，逼迫内容挤在一起)
+       2. 字体缩小，边距归零
        ==================================================================== */
     @media (max-width: 800px) {
-        /* 1. 强制主容器变宽，创造“整体滑动”体验 */
+        /* 1. 强制容器宽度变窄，消灭中间的空白 */
         .main .block-container {
-            min-width: 680px !important;  /* 宽度设为 iPhone 17 的 ~1.6倍 */
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
-            overflow-x: visible !important; /* 允许超出屏幕 */
+            min-width: 380px !important; /* 从 650 改为 380，拉近左右距离 */
+            max-width: 100vw !important;
+            padding-left: 2px !important;
+            padding-right: 2px !important;
+            overflow-x: auto !important;
         }
         
-        /* 2. 强制 body 允许横向滚动 */
         html, body {
             overflow-x: auto !important;
         }
 
-        /* 3. 强制列布局保持横向 (禁止 Streamlit 自动折叠成竖排) */
+        /* 2. 强制横向，且间距 (gap) 设为 0 */
         div[data-testid="stHorizontalBlock"] {
             flex-direction: row !important;
             flex-wrap: nowrap !important;
+            gap: 0px !important; /* 彻底消除列间距 */
         }
         
-        /* 4. 调整列的间距，让视觉不拥挤 */
+        /* 3. 允许列被压缩，并缩小字体 */
         div[data-testid="column"] {
             width: auto !important;
             flex: 1 1 auto !important;
-            padding: 0 5px !important; /* 给列之间加一点呼吸空间 */
+            min-width: 0px !important;
+            padding: 0px !important;
+        }
+
+        /* 4. 缩小所有文字，为了在窄屏里显示更多 */
+        div[data-testid="column"] p, 
+        div[data-testid="column"] span,
+        div[data-testid="column"] div {
+            font-size: 11px !important; /* 字体变小 */
+        }
+        
+        /* 5. 调整按钮大小 */
+        .stButton button {
+            padding: 0px 4px !important;
+            font-size: 10px !important;
+            height: 28px !important;
+            min-height: 28px !important;
         }
     }
 
@@ -97,10 +114,9 @@ st.markdown("""
         padding-bottom: 0px !important;
         line-height: 1 !important;
         border-radius: 4px;
-        white-space: nowrap !important; /* 防止按钮文字换行 */
+        white-space: nowrap !important;
     }
     
-    /* 垂直居中 */
     div[data-testid="column"] > div {
         display: flex;
         flex-direction: column;
@@ -549,19 +565,24 @@ if check_password():
 
             st.markdown("---")
             # ------------------------------------------------------------------
-            # 2. PAYSLIP RECORDS (4-COLUMN LAYOUT: No | Name | Amount | Mixed)
+            # 2. PAYSLIP RECORDS
+            # [Fix]: Tighter Ratios + Min-Width 380px for zero gaps
             # ------------------------------------------------------------------
             st.subheader(f"2. Payslip Records ({sel_month} {sel_year})")
             month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
             
-            # --- HEADER (定义4列比例) ---
-            # 比例说明: [0.6(序号), 2.8(名字), 2.2(金额), 2.4(状态+操作)]
-            # 这里的宽度在手机上会因为 CSS 强制 680px 而被完美拉开，不再拥挤
-            h1, h2, h3, h4 = st.columns([0.6, 2.8, 2.2, 2.4])
+            # [KEY RATIO ADJUSTMENT FOR TIGHTNESS] 
+            # 0.4 = No
+            # 2.5 = Name
+            # 1.8 = Amount
+            # 1.6 = Action
+            cols_ratio = [0.4, 2.5, 1.8, 1.6]
+            
+            h1, h2, h3, h4 = st.columns(cols_ratio)
             h1.markdown("**No.**")
             h2.markdown("**Employee**")
             h3.markdown("**Net Pay**")
-            h4.markdown("**Status**") # 标题只写Status，下面实际包含Action
+            h4.markdown("**Status**") 
             st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid #ccc;'>", unsafe_allow_html=True)
 
             idx_counter = 1
@@ -569,30 +590,19 @@ if check_password():
                 emp_static = st.session_state.db['employees'][emp_id]
                 rec = month_recs.get(emp_id)
                 
-                # 使用 Container 保证行结构稳固
                 with st.container():
-                    # 必须和 Header 保持完全一致的比例
-                    c1, c2, c3, c4 = st.columns([0.6, 2.8, 2.2, 2.4])
+                    c1, c2, c3, c4 = st.columns(cols_ratio)
                     
-                    # 1. No.
                     c1.markdown(f"{idx_counter}")
-                    
-                    # 2. Employee Name (保持独立)
                     c2.markdown(f"**{emp_id}**")
                     
                     if rec:
-                        # 3. Net Pay (保持独立)
                         curr_sym = emp_static['currency'].split('(')[0]
-                        # 如果金额太长，手机上可能会换行，这是正常的
                         c3.markdown(f"{curr_sym} {rec['net_salary']:,.2f}")
                         
-                        # 4. MERGED COLUMN: Status + Actions
                         with c4:
-                            # 上半部分：状态文字
                             s_color = "green" if rec['status'] == 'Paid' else "orange"
                             st.markdown(f":{s_color}[● {rec['status']}]")
-                            
-                            # 下半部分：两个按钮并排
                             b1, b2 = st.columns(2)
                             with b1:
                                 if st.button("✏️", key=f"edt_{emp_id}"):
@@ -608,7 +618,6 @@ if check_password():
                         with c4:
                             st.markdown(":grey[Pending]")
                     
-                    # 极细分割线
                     st.markdown("<hr style='margin: 2px 0; border: none; border-top: 1px solid #e0e0e0;'>", unsafe_allow_html=True)
                     idx_counter += 1
 
