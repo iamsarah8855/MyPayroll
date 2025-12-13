@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
-import os
+import streamlit.components.v1 as components
 from fpdf import FPDF
 from num2words import num2words
 from datetime import datetime, date
@@ -16,7 +16,21 @@ st.set_page_config(page_title="SDG Tech Payroll", layout="wide", page_icon="🏢
 # 建立连接 (全局)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# --- 注入 JS 脚本：专门解决手机 Sidebar 不自动收回的问题 ---
 st.markdown("""
+<script>
+    // 监听 Radio Button 的点击事件
+    const radios = window.parent.document.querySelectorAll('input[type="radio"]');
+    radios.forEach(radio => {
+        radio.addEventListener('click', () => {
+            // 找到 Sidebar 的关闭按钮并模拟点击
+            const closeBtn = window.parent.document.querySelector('button[kind="header"]');
+            if (closeBtn) {
+                closeBtn.click();
+            }
+        });
+    });
+</script>
 <style>
     /* --- GLOBAL FONT FIX --- */
     html, body, [class*="css"] {
@@ -24,7 +38,6 @@ st.markdown("""
     }
     
     /* --- TABLE SCROLL FIX (手机横向滚动) --- */
-    /* 强制表格容器允许横向滚动，不挤压内容 */
     [data-testid="stDataFrame"] {
         width: 100%;
         overflow-x: auto;
@@ -46,7 +59,7 @@ st.markdown("""
     .metric-label { font-size: 14px; font-weight: 500; opacity: 0.9; margin-bottom: 5px; }
     .metric-value { font-size: 28px; font-weight: 700; }
 
-    /* --- TABLE STYLING --- */
+    /* --- STATUS PILLS --- */
     .pill-paid { 
         background-color: #e6f4ea; color: #1e7e34; 
         padding: 3px 10px; border-radius: 20px; 
@@ -64,7 +77,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. AUTHENTICATION LOGIC
+# 1. AUTHENTICATION LOGIC (SECURE)
 # ==========================================
 def check_password():
     def password_entered():
@@ -97,7 +110,7 @@ def check_password():
 if check_password():
 
     # ==========================================
-    # 2. MAIN APPLICATION (Google Sheets Connected)
+    # 2. MAIN APPLICATION
     # ==========================================
     
     def load_db():
@@ -306,17 +319,17 @@ if check_password():
         pdf.cell(0, 5, "This is computer generated no signature required.", 0, 1, 'C')
         return pdf.output(dest='S').encode('latin-1', errors='replace')
 
-    # --- SIDEBAR NAV (尝试优化自动收起) ---
+    # --- SIDEBAR NAV (JS Optimized) ---
     with st.sidebar:
         st.markdown("<h1>SDG Tech</h1>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        # on_change=st.rerun 强制刷新，帮助手机端收起侧边栏
-        page = st.radio("MENU", ["Dashboard", "Payroll Center", "Leave Tracker", "Manage Employees", "⚙️ Settings"], label_visibility="collapsed", on_change=st.rerun)
+        # ⚠️ 注意：这里去掉了 on_change=st.rerun，解决了 Warning
+        page = st.radio("MENU", ["Dashboard", "Payroll Center", "Leave Tracker", "Manage Employees", "⚙️ Settings"], label_visibility="collapsed")
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         if st.button("Log Out"):
             del st.session_state["password_correct"]
             st.rerun()
-        st.caption("v17.11 Mobile Optimized")
+        st.caption("v17.11 Final JS")
 
     today = date.today(); default_month_idx = (today.month - 2) % 12 
     month_list = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
@@ -360,19 +373,19 @@ if check_password():
             year_total_myr = sum(convert_record_to_myr(r, current_global_rate) for r in all_recs if r['status'] == 'Paid' and str(dash_year) in r['payment_date'])
             st.markdown(f'<div class="summary-card-right"><div class="summary-title">TOTAL PAID {dash_year}</div><div class="summary-val">RM {year_total_myr:,.0f}</div><div style="color:#888; font-size:12px; margin-top:5px;">Est. in MYR</div></div>', unsafe_allow_html=True)
 
-        # [DASHBOARD TABLE - HORIZONTAL SCROLL ENABLED]
+        # [DASHBOARD TABLE]
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### Payroll Data")
         
         if st.session_state.db['employees']:
             month_rec_map = {r['employee_id']: r for r in month_recs}
             table_data = []
+            idx_counter = 1 # [FIX] Start from 1
             for emp_id, info in st.session_state.db['employees'].items():
                 if info.get('status') != 'Active' and emp_id not in month_rec_map: continue
                 rec = month_rec_map.get(emp_id)
                 
-                # 构建表格数据
-                row = {"Employee": emp_id, "Role": info["designation"]}
+                row = {"No.": idx_counter, "Employee": emp_id, "Role": info["designation"]}
                 if rec:
                     curr_sym = info['currency'].split('(')[0]
                     row["Net Pay"] = f"{curr_sym} {rec['net_salary']:,.2f}"
@@ -383,10 +396,11 @@ if check_password():
                     row["Date"] = "-"
                     row["Status"] = "Pending"
                 table_data.append(row)
+                idx_counter += 1
             
             if table_data:
-                # use_container_width=False 允许表格横向滚动，不挤压
-                st.dataframe(pd.DataFrame(table_data), use_container_width=False)
+                # [FIX] hide_index=True 隐藏默认的0,1,2，显示我们自定义的 No.
+                st.dataframe(pd.DataFrame(table_data), use_container_width=False, hide_index=True)
             else:
                 st.info("No data available.")
         else: st.info("No data available.")
@@ -499,50 +513,52 @@ if check_password():
             st.subheader(f"2. Payslip Records ({sel_month} {sel_year})")
             month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
             
-            # --- PAYSLIP TABLE RECONSTRUCTED FOR SCROLLING ---
+            # --- PAYSLIP TABLE ---
             table_rows = []
-            for idx, emp_id in enumerate(all_emps, 1):
+            idx_counter = 1 # [FIX] Start from 1
+            for emp_id in all_emps:
                 emp_static = st.session_state.db['employees'][emp_id]
                 rec = month_recs.get(emp_id)
                 
                 if rec:
                     curr_sym = emp_static['currency'].split('(')[0]
-                    # PDF Link Logic
-                    safe_name = emp_id.replace(" ", "_")
-                    f_name = f"Payslip_{safe_name}_{sel_month}_{sel_year}.pdf"
-                    
                     row = {
+                        "No.": idx_counter,
                         "Employee": emp_id,
                         "Net Pay": f"{curr_sym} {rec['net_salary']:,.2f}",
                         "Date": format_date_short(rec["payment_date"]),
-                        "Status": "✅ Paid" if rec['status'] == 'Paid' else "⏳ Pending",
-                        "Action": "Edit/Download below" # Mobile safe simplified
+                        "Status": "✅ Paid" if rec['status'] == 'Paid' else "⏳ Pending"
                     }
                 else:
                     row = {
+                        "No.": idx_counter,
                         "Employee": emp_id,
                         "Net Pay": "-",
                         "Date": "-",
-                        "Status": "Unprocessed",
-                        "Action": "-"
+                        "Status": "Unprocessed"
                     }
                 table_rows.append(row)
+                idx_counter += 1
             
-            # 使用原生表格显示关键信息，支持横向滚动
+            # Overview Table
             if table_rows:
-                st.dataframe(pd.DataFrame(table_rows), use_container_width=False)
+                st.dataframe(pd.DataFrame(table_rows), use_container_width=False, hide_index=True)
             
-            # 提供单独的卡片式操作区（针对手机优化）
-            st.markdown("### 🛠️ Actions (Download & Edit)")
+            # Actions Area
+            st.markdown("### 🛠️ Actions (Manage)")
             for emp_id in all_emps:
                 if emp_id in month_recs:
                     rec = month_recs[emp_id]
                     with st.expander(f"Manage: {emp_id}"):
-                        c_a, c_b = st.columns(2)
-                        if c_a.button("Edit", key=f"edt_{emp_id}"): st.session_state.edit_target = emp_id; st.rerun()
+                        # [FIX] Buttons side-by-side [1, 1, 5] ratio
+                        c_a, c_b, c_space = st.columns([1, 1, 5])
+                        
+                        if c_a.button("Edit", key=f"edt_{emp_id}"): 
+                            st.session_state.edit_target = emp_id; st.rerun()
+                        
                         pdf_bytes = create_pdf(rec, st.session_state.db['employees'][emp_id])
                         safe_name = emp_id.replace(" ", "_")
-                        c_b.download_button("Download PDF", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"btn_{emp_id}")
+                        c_b.download_button("Download", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"btn_{emp_id}")
                         
                         is_paid = (rec['status'] == 'Paid')
                         def update_status(rid=rec['id']):
@@ -590,7 +606,6 @@ if check_password():
         
         if data_list:
             df = pd.DataFrame(data_list)
-            # [SCROLL FIX] use_container_width=False enables horizontal scroll
             edited_df = st.data_editor(
                 df, use_container_width=False,
                 column_config={
