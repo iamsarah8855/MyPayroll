@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import numpy as np
 import streamlit.components.v1 as components
 from fpdf import FPDF
 from num2words import num2words
@@ -163,12 +164,21 @@ if check_password():
     # 2. MAIN APPLICATION
     # ==========================================
     
+    # [FIX] Helper function to sanitize floats and prevent API Errors
+    def safe_float(val):
+        try:
+            if pd.isna(val) or val is None: return 0.0
+            f = float(val)
+            if np.isinf(f) or np.isnan(f): return 0.0
+            return f
+        except: return 0.0
+
     def load_db():
         default_db = {"employees": {}, "records": [], "leave_records": [], "settings": {"usd_rate": 4.45}}
         try:
             df_settings = conn.read(worksheet="Settings", ttl=0)
             if not df_settings.empty and 'usd_rate' in df_settings.columns:
-                default_db['settings']['usd_rate'] = float(df_settings.iloc[0]['usd_rate'])
+                default_db['settings']['usd_rate'] = safe_float(df_settings.iloc[0]['usd_rate'])
 
             df_emp = conn.read(worksheet="Employees", ttl=0)
             if not df_emp.empty:
@@ -187,7 +197,7 @@ if check_password():
                         "currency": row['currency'],
                         "bank_name": row['bank_name'],
                         "account_number": str(row['account_number']),
-                        "basic_salary": float(row['basic_salary']),
+                        "basic_salary": safe_float(row['basic_salary']),
                         "status": row['status'],
                         "master_remark": row['master_remark'] if pd.notna(row['master_remark']) else "",
                         "last_increment": l_inc,
@@ -209,22 +219,21 @@ if check_password():
                         "payment_date": row['payment_date'],
                         "earnings_list": earn_list,
                         "deductions_list": ded_list,
-                        "net_salary": float(row['net_salary']),
+                        "net_salary": safe_float(row['net_salary']),
                         "currency": row['currency'],
                         "remarks": row['remarks'] if pd.notna(row['remarks']) else "",
                         "status": row['status'],
-                        "exchange_rate": float(row['exchange_rate']) if pd.notna(row['exchange_rate']) else 0.0
+                        "exchange_rate": safe_float(row['exchange_rate'])
                     })
             return default_db
         except Exception as e:
             return default_db
 
     def save_db(data):
-        # 1. Update Settings
-        df_set = pd.DataFrame([{"usd_rate": data['settings']['usd_rate']}])
+        # [CRITICAL FIX] Sanitize data before saving to prevent gspread errors
+        df_set = pd.DataFrame([{"usd_rate": safe_float(data['settings']['usd_rate'])}])
         conn.update(worksheet="Settings", data=df_set)
 
-        # 2. Update Employees
         emp_list = []
         for name, info in data['employees'].items():
             emp_list.append({
@@ -235,22 +244,22 @@ if check_password():
                 "currency": info['currency'],
                 "bank_name": info['bank_name'],
                 "account_number": info['account_number'],
-                "basic_salary": info['basic_salary'],
+                "basic_salary": safe_float(info['basic_salary']),
                 "status": info['status'],
                 "master_remark": info.get('master_remark', ''),
                 "last_increment": json.dumps(info['last_increment']) if info['last_increment'] else None,
                 "last_bonus": json.dumps(info['last_bonus']) if info['last_bonus'] else None
             })
-        
         if emp_list:
-            # [CRITICAL FIX] .fillna("") 解决 gspread.exceptions.APIError
-            # Google Sheets API 不接受 NaN (Not a Number)，必须替换成空字符串
             df_emp = pd.DataFrame(emp_list).fillna("")
             conn.update(worksheet="Employees", data=df_emp)
         
-        # 3. Update Records
         rec_list = []
         for r in data['records']:
+            # Sanitize numeric fields specifically
+            clean_net = safe_float(r['net_salary'])
+            clean_rate = safe_float(r['exchange_rate'])
+            
             rec_list.append({
                 "id": r['id'],
                 "employee_id": r['employee_id'],
@@ -258,33 +267,30 @@ if check_password():
                 "payment_date": r['payment_date'],
                 "earnings_list": json.dumps(r['earnings_list']),
                 "deductions_list": json.dumps(r['deductions_list']),
-                "net_salary": r['net_salary'],
+                "net_salary": clean_net,
                 "currency": r['currency'],
                 "remarks": r['remarks'],
                 "status": r['status'],
-                "exchange_rate": r['exchange_rate']
+                "exchange_rate": clean_rate
             })
-        
         if rec_list:
-            # [CRITICAL FIX] 同样加上 .fillna("") 保护记录表
             df_rec = pd.DataFrame(rec_list).fillna("")
             conn.update(worksheet="Records", data=df_rec)
-            
         st.cache_data.clear()
 
     def get_last_record(emp_id, db):
         emp_records = [r for r in db['records'] if r['employee_id'] == emp_id]
         if not emp_records: return None
-        # [FIX] Sort by payment_date (YYYY-MM-DD) to fix January/December issue
+        # [FIX] Sort by Date to ensure January 2026 comes after December 2025
         return sorted(emp_records, key=lambda x: x['payment_date'])[-1]
 
     def convert_record_to_myr(record, default_rate):
         try:
             currency = str(record.get('currency', '')).upper()
-            net_pay = float(record.get('net_salary', 0.0))
+            net_pay = safe_float(record.get('net_salary', 0.0))
             if "USD" in currency:
-                rate = record.get('exchange_rate')
-                if rate is None or rate == 0: rate = default_rate
+                rate = safe_float(record.get('exchange_rate'))
+                if rate == 0: rate = default_rate
                 return net_pay * float(rate)
             return net_pay
         except: return 0.0
@@ -458,9 +464,11 @@ if check_password():
                 if rec:
                     curr_sym = info['currency'].split('(')[0]
                     row["Net Pay"] = f"{curr_sym} {rec['net_salary']:,.2f}"
+                    # [Removed Date Here]
                     row["Status"] = rec['status']
                 else:
                     row["Net Pay"] = "-"
+                    # [Removed Date Here]
                     row["Status"] = "Pending"
                 table_data.append(row)
                 idx_counter += 1
@@ -496,10 +504,17 @@ if check_password():
                     if emp_id in current_recs_ids: continue 
                     emp_data = st.session_state.db['employees'][emp_id]
                     last_rec = get_last_record(emp_id, st.session_state.db)
-                    new_earnings = last_rec['earnings_list'] if last_rec else [{"Description": "Basic Salary", "Amount": emp_data.get('basic_salary', 0.0)}]
+                    
+                    # [FIX] Force numeric values to prevent NaN propagation
+                    default_basic = safe_float(emp_data.get('basic_salary', 0.0))
+                    new_earnings = last_rec['earnings_list'] if last_rec else [{"Description": "Basic Salary", "Amount": default_basic}]
                     new_deductions = last_rec['deductions_list'] if last_rec else [{"Description": "Unpaid Leave", "Amount": 0.0}]
-                    use_rate = last_rec['exchange_rate'] if last_rec else default_rate
-                    net = sum(e['Amount'] for e in new_earnings) - sum(d['Amount'] for d in new_deductions)
+                    use_rate = safe_float(last_rec['exchange_rate']) if last_rec else default_rate
+                    
+                    # Calculate Net with safe math
+                    total_earn = sum(safe_float(e.get('Amount', 0)) for e in new_earnings)
+                    total_deduct = sum(safe_float(d.get('Amount', 0)) for d in new_deductions)
+                    net = total_earn - total_deduct
                     
                     st.session_state.db['records'].append({
                         "id": f"{emp_id}_{sel_month}_{sel_year}", "employee_id": emp_id, "month_label": sel_month, "payment_date": str(date.today()),
@@ -544,13 +559,13 @@ if check_password():
             last_rec = get_last_record(sel_emp, st.session_state.db)
             curr_rec = next((r for r in st.session_state.db['records'] if r['employee_id'] == sel_emp and r['month_label'] == sel_month and str(sel_year) in r['payment_date']), None)
             
-            master_basic = emp_static.get('basic_salary', 0.0)
+            master_basic = safe_float(emp_static.get('basic_salary', 0.0))
             default_earnings = [{"Description": "Basic Salary", "Amount": master_basic}]
             d_earn = curr_rec['earnings_list'] if curr_rec else (last_rec['earnings_list'] if last_rec else default_earnings)
             d_deduct = curr_rec['deductions_list'] if curr_rec else (last_rec['deductions_list'] if last_rec else [{"Description": "Unpaid Leave", "Amount": 0.0}])
             rem_val = curr_rec.get('remarks', "") if curr_rec else ""
             default_rate = st.session_state.db['settings']['usd_rate']
-            saved_rate = curr_rec.get('exchange_rate', default_rate) if curr_rec else default_rate
+            saved_rate = safe_float(curr_rec.get('exchange_rate', default_rate)) if curr_rec else default_rate
             
             try: val_date = datetime.strptime(curr_rec['payment_date'], "%Y-%m-%d").date() if curr_rec else date.today()
             except: val_date = date.today()
@@ -664,7 +679,7 @@ if check_password():
 
             data_list.append({
                 "Status": st_flag, "Name": e['name'], "Role": e['designation'],
-                "Basic Salary": e.get('basic_salary', 0.0), "Join Date": e['join_date'],
+                "Basic Salary": safe_float(e.get('basic_salary', 0.0)), "Join Date": e['join_date'],
                 "Tenure": calculate_tenure(e['join_date']), "Date of Birth": dob_txt,
                 "Last Increment": inc_txt, "Last Bonus": bon_txt,
                 "Remark": e.get('master_remark', ''), "✏️": False, "🗑️": False
@@ -721,7 +736,7 @@ if check_password():
                         if c_stat == 'Resigned': c_stat = 'Inactive'
                         curr_status_idx = 0 if c_stat == 'Active' else 1
                         new_status = c_a.selectbox("Status", status_opts, index=curr_status_idx)
-                        new_salary = c_b.number_input("Basic Salary", value=float(curr_data.get('basic_salary', 0.0)), step=100.0)
+                        new_salary = c_b.number_input("Basic Salary", value=safe_float(curr_data.get('basic_salary', 0.0)), step=100.0)
                         
                         try: def_join = datetime.strptime(curr_data['join_date'], "%d %b %Y").date()
                         except: def_join = date.today()
@@ -735,13 +750,13 @@ if check_password():
                         st.markdown("**Last Increment**"); ci1, ci2 = st.columns(2)
                         try: def_inc_date = datetime.strptime(curr_data['last_increment']['date'], "%d %b %Y").date()
                         except: def_inc_date = date.today()
-                        def_inc_pct = float(curr_data['last_increment']['percentage']) if curr_data.get('last_increment') else 0.0
+                        def_inc_pct = safe_float(curr_data['last_increment']['percentage']) if curr_data.get('last_increment') else 0.0
                         new_inc_date = ci1.date_input("Date", value=def_inc_date, key=f"id_{target_emp}")
                         new_inc_pct = ci2.number_input("Percentage (%)", value=def_inc_pct, step=1.0, key=f"ip_{target_emp}")
                         
                         st.markdown("**Last Bonus**"); cb1, cb2 = st.columns(2)
                         def_bon_year = int(curr_data['last_bonus']['year']) if curr_data.get('last_bonus') else date.today().year
-                        def_bon_amt = float(curr_data['last_bonus']['amount']) if curr_data.get('last_bonus') else 0.0
+                        def_bon_amt = safe_float(curr_data['last_bonus']['amount']) if curr_data.get('last_bonus') else 0.0
                         new_bon_year = cb1.number_input("Year", value=def_bon_year, step=1, key=f"by_{target_emp}")
                         new_bon_amt = cb2.number_input("Amount", value=def_bon_amt, step=100.0, key=f"ba_{target_emp}")
                         
