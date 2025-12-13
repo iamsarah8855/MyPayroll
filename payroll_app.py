@@ -6,7 +6,7 @@ from fpdf import FPDF
 from num2words import num2words
 from datetime import datetime, date
 import calendar
-from streamlit_gsheets import GSheetsConnection  # --- 新增：引入 Google Sheets 连接库 ---
+from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
 # 0. APP CONFIGURATION & CSS
@@ -18,15 +18,20 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 st.markdown("""
 <style>
-    /* --- GLOBAL FONT FIX (Clean & Modern) --- */
+    /* --- GLOBAL FONT FIX --- */
     html, body, [class*="css"] {
         font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
     }
     
-    .row-container, .cell-id, .emp-name, .emp-role, .cell-num, .cell-date, .tbl-header, .pill-paid, .pill-pending {
-        font-family: "Source Sans Pro", sans-serif !important;
+    /* --- TABLE SCROLL FIX (手机横向滚动) --- */
+    /* 强制表格容器允许横向滚动，不挤压内容 */
+    [data-testid="stDataFrame"] {
+        width: 100%;
+        overflow-x: auto;
+        display: block;
+        white-space: nowrap;
     }
-
+    
     /* --- SIDEBAR --- */
     [data-testid="stSidebar"] { background-color: #1a1f36; }
     [data-testid="stSidebar"] * { color: #ffffff !important; }
@@ -35,48 +40,13 @@ st.markdown("""
     }
     .stRadio > div[role="radiogroup"] > label:hover { background-color: #2c3350; cursor: pointer; }
 
-    /* --- LOGIN FORM --- */
-    .login-container {
-        max-width: 400px;
-        margin: 100px auto;
-        padding: 30px;
-        border-radius: 10px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        background-color: white;
-        text-align: center;
-    }
-
     /* --- METRICS --- */
     .metric-card-purple { background-color: #7f56d9; color: white; padding: 20px; border-radius: 12px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     .metric-card-blue { background-color: #0070f3; color: white; padding: 20px; border-radius: 12px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     .metric-label { font-size: 14px; font-weight: 500; opacity: 0.9; margin-bottom: 5px; }
     .metric-value { font-size: 28px; font-weight: 700; }
 
-    /* --- CHART & SUMMARY --- */
-    .chart-box { background: white; padding: 20px; border-radius: 12px; border: 1px solid #e0e0e0; height: 100%; }
-    .summary-card-right { background-color: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 12px; padding: 25px; height: 100%; display: flex; flex-direction: column; justify-content: center; text-align: center; }
-    .summary-title { font-size: 14px; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;}
-    .summary-val { font-size: 32px; color: #1a1f36; font-weight: 800; margin-top: 10px; }
-
     /* --- TABLE STYLING --- */
-    .row-container { 
-        border-bottom: 1px solid #f0f0f0; 
-        padding: 6px 0; 
-        display: flex; 
-        align-items: center; 
-    }
-    .row-container:hover { background-color: #f8f9fa; transition: 0.2s; }
-    
-    .cell-id { font-size: 13px; color: #999; font-weight: 500; text-align: center; }
-    
-    .emp-info-box { line-height: 1.2; }
-    .emp-name { font-size: 15px; font-weight: 400; color: #1a1f36; display: block; } 
-    .emp-role { font-size: 12px; font-weight: 400; color: #8898aa; display: block; margin-top: 2px; }
-    
-    .cell-num { font-size: 13px; font-weight: 400; color: #555; }
-    .cell-date { font-size: 13px; font-weight: 400; color: #555; }
-    
-    /* Status Pills */
     .pill-paid { 
         background-color: #e6f4ea; color: #1e7e34; 
         padding: 3px 10px; border-radius: 20px; 
@@ -89,17 +59,7 @@ st.markdown("""
         font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
         display: inline-block;
     }
-    
-    .tbl-header { font-size: 12px; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-    .status-active { color: #0f9d58; font-size: 18px; }
-    .status-inactive { color: #d93025; font-size: 18px; }
-    
-    /* General Fixes */
-    div[data-testid="stCheckbox"] label span[data-testid="stTickBar"] { background-color: #0f9d58 !important; }
-    div[data-testid="column"] { padding-bottom: 0px !important; }
-    div[data-testid="column"] button { margin-top: 0px !important; margin-bottom: 0px !important; border-color: #e0e0e0; }
     .input-label-spacer { height: 28px; } 
-    
 </style>
 """, unsafe_allow_html=True)
 
@@ -137,27 +97,20 @@ def check_password():
 if check_password():
 
     # ==========================================
-    # 2. MAIN APPLICATION (WITH GOOGLE SHEETS)
+    # 2. MAIN APPLICATION (Google Sheets Connected)
     # ==========================================
     
-    # --- 新增：从 Google Sheets 读取并转换格式 ---
     def load_db():
-        # 默认空结构，防止读取失败
         default_db = {"employees": {}, "records": [], "leave_records": [], "settings": {"usd_rate": 4.45}}
-        
         try:
-            # 1. 读取设置 (Settings)
             df_settings = conn.read(worksheet="Settings", ttl=0)
             if not df_settings.empty and 'usd_rate' in df_settings.columns:
                 default_db['settings']['usd_rate'] = float(df_settings.iloc[0]['usd_rate'])
 
-            # 2. 读取员工 (Employees)
             df_emp = conn.read(worksheet="Employees", ttl=0)
             if not df_emp.empty:
-                # 转换回字典格式 {"Name": {details...}}
                 for _, row in df_emp.iterrows():
                     emp_name = row['name']
-                    # 处理 JSON 字段 (Last Increment / Bonus 是存成字符串的 JSON)
                     try: l_inc = json.loads(row['last_increment']) if row['last_increment'] else None
                     except: l_inc = None
                     try: l_bon = json.loads(row['last_bonus']) if row['last_bonus'] else None
@@ -178,11 +131,9 @@ if check_password():
                         "last_bonus": l_bon
                     }
 
-            # 3. 读取记录 (Records)
             df_rec = conn.read(worksheet="Records", ttl=0)
             if not df_rec.empty:
                 for _, row in df_rec.iterrows():
-                    # 转换回列表格式
                     try: earn_list = json.loads(row['earnings_list'])
                     except: earn_list = []
                     try: ded_list = json.loads(row['deductions_list'])
@@ -201,20 +152,14 @@ if check_password():
                         "status": row['status'],
                         "exchange_rate": float(row['exchange_rate']) if pd.notna(row['exchange_rate']) else 0.0
                     })
-            
             return default_db
         except Exception as e:
-            # 如果出错（比如第一次运行表格是空的），返回默认空结构
-            # st.error(f"DB Load Error: {e}") # Debug 用
             return default_db
 
-    # --- 新增：保存回 Google Sheets ---
     def save_db(data):
-        # 1. 保存设置
         df_set = pd.DataFrame([{"usd_rate": data['settings']['usd_rate']}])
         conn.update(worksheet="Settings", data=df_set)
 
-        # 2. 保存员工 (Flatten Dict back to DF)
         emp_list = []
         for name, info in data['employees'].items():
             emp_list.append({
@@ -234,7 +179,6 @@ if check_password():
         if emp_list:
             conn.update(worksheet="Employees", data=pd.DataFrame(emp_list))
         
-        # 3. 保存记录 (Flatten List back to DF)
         rec_list = []
         for r in data['records']:
             rec_list.append({
@@ -252,8 +196,6 @@ if check_password():
             })
         if rec_list:
             conn.update(worksheet="Records", data=pd.DataFrame(rec_list))
-        
-        # 清除缓存，确保下次读取是最新的
         st.cache_data.clear()
 
     def get_last_record(emp_id, db):
@@ -261,7 +203,6 @@ if check_password():
         if not emp_records: return None
         return sorted(emp_records, key=lambda x: x['id'])[-1]
 
-    # [FIX] Robust Conversion Function for Dashboard
     def convert_record_to_myr(record, default_rate):
         try:
             currency = str(record.get('currency', '')).upper()
@@ -365,16 +306,17 @@ if check_password():
         pdf.cell(0, 5, "This is computer generated no signature required.", 0, 1, 'C')
         return pdf.output(dest='S').encode('latin-1', errors='replace')
 
-    # --- SIDEBAR NAV ---
+    # --- SIDEBAR NAV (尝试优化自动收起) ---
     with st.sidebar:
         st.markdown("<h1>SDG Tech</h1>", unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
-        page = st.radio("MENU", ["Dashboard", "Payroll Center", "Leave Tracker", "Manage Employees", "⚙️ Settings"], label_visibility="collapsed")
+        # on_change=st.rerun 强制刷新，帮助手机端收起侧边栏
+        page = st.radio("MENU", ["Dashboard", "Payroll Center", "Leave Tracker", "Manage Employees", "⚙️ Settings"], label_visibility="collapsed", on_change=st.rerun)
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         if st.button("Log Out"):
             del st.session_state["password_correct"]
             st.rerun()
-        st.caption("v17.11 Cloud Pro") # Updated Title
+        st.caption("v17.11 Mobile Optimized")
 
     today = date.today(); default_month_idx = (today.month - 2) % 12 
     month_list = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
@@ -391,7 +333,6 @@ if check_password():
         all_recs = st.session_state.db['records']
         month_recs = [r for r in all_recs if r['month_label'] == dash_month and str(dash_year) in r['payment_date']]
         
-        # [FIX] Total Payout using Robust Conversion
         total_payout_myr = sum(convert_record_to_myr(r, current_global_rate) for r in month_recs if r['status'] == 'Paid')
         
         paid_recs_count = sum(1 for r in month_recs if r['status'] == 'Paid')
@@ -419,43 +360,35 @@ if check_password():
             year_total_myr = sum(convert_record_to_myr(r, current_global_rate) for r in all_recs if r['status'] == 'Paid' and str(dash_year) in r['payment_date'])
             st.markdown(f'<div class="summary-card-right"><div class="summary-title">TOTAL PAID {dash_year}</div><div class="summary-val">RM {year_total_myr:,.0f}</div><div style="color:#888; font-size:12px; margin-top:5px;">Est. in MYR</div></div>', unsafe_allow_html=True)
 
-        # [DASHBOARD TABLE]
+        # [DASHBOARD TABLE - HORIZONTAL SCROLL ENABLED]
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### Payroll Data")
         
-        col_ratios = [0.3, 2.0, 1.5, 1.5, 1.5]
-        h0, h1, h2, h3, h4 = st.columns(col_ratios)
-        h0.markdown('<div class="tbl-header">#</div>', unsafe_allow_html=True)
-        h1.markdown('<div class="tbl-header">EMPLOYEE</div>', unsafe_allow_html=True)
-        h2.markdown('<div class="tbl-header">NET PAY</div>', unsafe_allow_html=True)
-        h3.markdown('<div class="tbl-header">DATE</div>', unsafe_allow_html=True)
-        h4.markdown('<div class="tbl-header">STATUS</div>', unsafe_allow_html=True)
-        st.markdown("<div style='border-bottom: 2px solid #e0e0e0; margin-bottom: -10px; margin-top: 5px;'></div>", unsafe_allow_html=True)
-
         if st.session_state.db['employees']:
             month_rec_map = {r['employee_id']: r for r in month_recs}
-            idx_counter = 1
+            table_data = []
             for emp_id, info in st.session_state.db['employees'].items():
                 if info.get('status') != 'Active' and emp_id not in month_rec_map: continue
                 rec = month_rec_map.get(emp_id)
-                with st.container():
-                    st.markdown('<div class="row-container">', unsafe_allow_html=True)
-                    c0, c1, c2, c3, c4 = st.columns(col_ratios)
-                    c0.markdown(f'<div class="cell-id">{idx_counter}</div>', unsafe_allow_html=True)
-                    c1.markdown(f'<div class="emp-info-box"><span class="emp-name">{emp_id}</span><span class="emp-role">{info["designation"]}</span></div>', unsafe_allow_html=True)
-                    if rec:
-                        curr_sym = info['currency'].split('(')[0]
-                        c2.markdown(f'<div class="cell-num">{curr_sym} {rec["net_salary"]:,.2f}</div>', unsafe_allow_html=True)
-                        c3.markdown(f'<div class="cell-date">{format_date_short(rec["payment_date"])}</div>', unsafe_allow_html=True)
-                        is_paid = (rec['status'] == 'Paid')
-                        if is_paid: c4.markdown('<div class="pill-paid">Paid</div>', unsafe_allow_html=True)
-                        else: c4.markdown('<div class="pill-pending">Pending</div>', unsafe_allow_html=True)
-                    else:
-                        c2.markdown('<div class="cell-num">-</div>', unsafe_allow_html=True)
-                        c3.markdown('<div class="cell-date">-</div>', unsafe_allow_html=True)
-                        c4.markdown('<div style="color:#aaa; font-size:12px;">Unprocessed</div>', unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    idx_counter += 1
+                
+                # 构建表格数据
+                row = {"Employee": emp_id, "Role": info["designation"]}
+                if rec:
+                    curr_sym = info['currency'].split('(')[0]
+                    row["Net Pay"] = f"{curr_sym} {rec['net_salary']:,.2f}"
+                    row["Date"] = format_date_short(rec["payment_date"])
+                    row["Status"] = rec['status']
+                else:
+                    row["Net Pay"] = "-"
+                    row["Date"] = "-"
+                    row["Status"] = "Pending"
+                table_data.append(row)
+            
+            if table_data:
+                # use_container_width=False 允许表格横向滚动，不挤压
+                st.dataframe(pd.DataFrame(table_data), use_container_width=False)
+            else:
+                st.info("No data available.")
         else: st.info("No data available.")
 
     # --- PAYROLL CENTER ---
@@ -485,7 +418,6 @@ if check_password():
                     use_rate = last_rec['exchange_rate'] if last_rec else default_rate
                     net = sum(e['Amount'] for e in new_earnings) - sum(d['Amount'] for d in new_deductions)
                     
-                    # [CRITICAL: DEFAULT STATUS UNPAID]
                     st.session_state.db['records'].append({
                         "id": f"{emp_id}_{sel_month}_{sel_year}", "employee_id": emp_id, "month_label": sel_month, "payment_date": str(date.today()),
                         "earnings_list": new_earnings, "deductions_list": new_deductions,
@@ -537,7 +469,6 @@ if check_password():
             default_rate = st.session_state.db['settings']['usd_rate']
             saved_rate = curr_rec.get('exchange_rate', default_rate) if curr_rec else default_rate
             
-            # [FIX] Use date.today() to avoid type mismatch
             try: val_date = datetime.strptime(curr_rec['payment_date'], "%Y-%m-%d").date() if curr_rec else date.today()
             except: val_date = date.today()
 
@@ -568,55 +499,57 @@ if check_password():
             st.subheader(f"2. Payslip Records ({sel_month} {sel_year})")
             month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
             
-            # Table Headers
-            col_ratios = [0.3, 1.8, 1.2, 1.0, 0.5, 0.5, 1.0]
-            h0, h1, h2, h3, h4, h5, h6 = st.columns(col_ratios)
-            h0.markdown('<div class="tbl-header">#</div>', unsafe_allow_html=True)
-            h1.markdown('<div class="tbl-header">EMPLOYEE</div>', unsafe_allow_html=True)
-            h2.markdown('<div class="tbl-header">NET PAY</div>', unsafe_allow_html=True)
-            h3.markdown('<div class="tbl-header">DATE</div>', unsafe_allow_html=True)
-            h4.markdown('<div class="tbl-header" style="text-align:center">EDIT</div>', unsafe_allow_html=True)
-            h5.markdown('<div class="tbl-header" style="text-align:center">PDF</div>', unsafe_allow_html=True)
-            h6.markdown('<div class="tbl-header">STATUS</div>', unsafe_allow_html=True)
-            st.markdown("<div style='border-bottom: 2px solid #e0e0e0; margin-bottom: -10px; margin-top: 5px;'></div>", unsafe_allow_html=True)
-            
+            # --- PAYSLIP TABLE RECONSTRUCTED FOR SCROLLING ---
+            table_rows = []
             for idx, emp_id in enumerate(all_emps, 1):
                 emp_static = st.session_state.db['employees'][emp_id]
                 rec = month_recs.get(emp_id)
-                with st.container():
-                    st.markdown('<div class="row-container">', unsafe_allow_html=True)
-                    c0, c1, c2, c3, c4, c5, c6 = st.columns(col_ratios)
-                    c0.markdown(f'<div class="cell-id">{idx}</div>', unsafe_allow_html=True)
-                    c1.markdown(f'<div class="emp-info-box"><span class="emp-name">{emp_id}</span><span class="emp-role">{emp_static["designation"]}</span></div>', unsafe_allow_html=True)
-                    if rec:
-                        curr_sym = emp_static['currency'].split('(')[0]
-                        c2.markdown(f'<div class="cell-num">{curr_sym} {rec["net_salary"]:,.2f}</div>', unsafe_allow_html=True)
-                        c3.markdown(f'<div class="cell-date">{format_date_short(rec["payment_date"])}</div>', unsafe_allow_html=True)
-                        def set_edit(e_id=emp_id): st.session_state.edit_target = e_id
-                        c4.button("✏️", key=f"edt_{emp_id}", on_click=set_edit)
-                        
-                        # [FIX] Safe Filename for PDF
+                
+                if rec:
+                    curr_sym = emp_static['currency'].split('(')[0]
+                    # PDF Link Logic
+                    safe_name = emp_id.replace(" ", "_")
+                    f_name = f"Payslip_{safe_name}_{sel_month}_{sel_year}.pdf"
+                    
+                    row = {
+                        "Employee": emp_id,
+                        "Net Pay": f"{curr_sym} {rec['net_salary']:,.2f}",
+                        "Date": format_date_short(rec["payment_date"]),
+                        "Status": "✅ Paid" if rec['status'] == 'Paid' else "⏳ Pending",
+                        "Action": "Edit/Download below" # Mobile safe simplified
+                    }
+                else:
+                    row = {
+                        "Employee": emp_id,
+                        "Net Pay": "-",
+                        "Date": "-",
+                        "Status": "Unprocessed",
+                        "Action": "-"
+                    }
+                table_rows.append(row)
+            
+            # 使用原生表格显示关键信息，支持横向滚动
+            if table_rows:
+                st.dataframe(pd.DataFrame(table_rows), use_container_width=False)
+            
+            # 提供单独的卡片式操作区（针对手机优化）
+            st.markdown("### 🛠️ Actions (Download & Edit)")
+            for emp_id in all_emps:
+                if emp_id in month_recs:
+                    rec = month_recs[emp_id]
+                    with st.expander(f"Manage: {emp_id}"):
+                        c_a, c_b = st.columns(2)
+                        if c_a.button("Edit", key=f"edt_{emp_id}"): st.session_state.edit_target = emp_id; st.rerun()
+                        pdf_bytes = create_pdf(rec, st.session_state.db['employees'][emp_id])
                         safe_name = emp_id.replace(" ", "_")
-                        f_name = f"Payslip_{safe_name}_{sel_month}_{sel_year}.pdf"
+                        c_b.download_button("Download PDF", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"btn_{emp_id}")
                         
-                        pdf_bytes = create_pdf(rec, emp_static)
-                        c5.download_button("📄", data=pdf_bytes, file_name=f_name, mime="application/pdf", key=f"btn_{emp_id}")
                         is_paid = (rec['status'] == 'Paid')
                         def update_status(rid=rec['id']):
                             for r in st.session_state.db['records']:
                                 if r['id'] == rid: r['status'] = 'Unpaid' if r['status'] == 'Paid' else 'Paid'
                             save_db(st.session_state.db)
-                        sc1, sc2 = c6.columns([0.25, 0.75])
-                        with sc1: st.checkbox("Paid", value=is_paid, key=f"chk_{emp_id}", on_change=update_status, args=(rec['id'],), label_visibility="collapsed")
-                        with sc2:
-                            if is_paid: st.markdown('<div class="pill-paid">Paid</div>', unsafe_allow_html=True)
-                            else: st.markdown('<div class="pill-pending">Pending</div>', unsafe_allow_html=True)
-                    else:
-                        c2.markdown('<div class="cell-num">-</div>', unsafe_allow_html=True)
-                        c3.markdown('<div class="cell-date">-</div>', unsafe_allow_html=True)
-                        c4.write(""); c5.write("")
-                        c6.markdown('<span style="color:#aaa; font-size:12px; margin-left:10px;">Pending Gen</span>', unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
+                        st.checkbox("Mark as Paid", value=is_paid, key=f"chk_{emp_id}", on_change=update_status, args=(rec['id'],))
 
     # --- MANAGE EMPLOYEES ---
     elif page == "Manage Employees":
@@ -624,6 +557,7 @@ if check_password():
         st.markdown("### Add New Employee")
         with st.container():
             c1, c2 = st.columns(2); name = c1.text_input("Name"); role = c2.text_input("Designation")
+            # [DATE FIX] Allow dates from 1900
             c3, c4 = st.columns(2); join = c3.date_input("Join Date", min_value=date(1980,1,1)); dob = c4.date_input("Date of Birth", min_value=date(1900,1,1), max_value=date.today())
             c5, c6 = st.columns(2); curr = c5.selectbox("Currency", ["RM (MYR)", "$ (USD)"]); bank = c6.text_input("Bank")
             c7, c8 = st.columns(2); acc = c7.text_input("A/C No"); 
@@ -656,8 +590,9 @@ if check_password():
         
         if data_list:
             df = pd.DataFrame(data_list)
+            # [SCROLL FIX] use_container_width=False enables horizontal scroll
             edited_df = st.data_editor(
-                df, use_container_width=True,
+                df, use_container_width=False,
                 column_config={
                     "Status": st.column_config.TextColumn(width="small", help="Green=Active, Grey=Inactive"),
                     "Basic Salary": st.column_config.NumberColumn(format="%.2f", disabled=True),
@@ -711,6 +646,7 @@ if check_password():
                         
                         try: def_dob = datetime.strptime(curr_data.get('date_of_birth', ''), "%d %b %Y").date()
                         except: def_dob = date.today()
+                        # [DATE FIX]
                         new_dob = st.date_input("Date of Birth", value=def_dob, min_value=date(1900,1,1), max_value=date.today())
 
                         st.markdown("**Last Increment**"); ci1, ci2 = st.columns(2)
