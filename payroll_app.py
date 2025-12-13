@@ -43,24 +43,36 @@ st.markdown("""
         white-space: nowrap;
     }
     
-    /* --- [关键修改] FORCE MOBILE HORIZONTAL LAYOUT (暴力强制横排) --- */
-    /* 只要屏幕宽度小于 800px (手机/平板)，强制列不换行 */
+    /* ====================================================================
+       [关键修改] MOBILE FORCE WIDESCREEN (手机强制宽屏模式)
+       这会让手机上的内容宽度固定为 680px，从而实现“整体左右滑动”的效果。
+       表头和内容绝对对齐，不会乱跑。
+       ==================================================================== */
     @media (max-width: 800px) {
-        div[data-testid="stHorizontalBlock"] {
-            flex-direction: row !important; /* 强制横向 */
-            flex-wrap: nowrap !important;   /* 禁止换行 */
-            overflow-x: auto !important;    /* 如果太挤，允许左右微调滑动，但绝不变成竖排 */
+        /* 1. 强制主容器变宽，创造“整体滑动”体验 */
+        .main .block-container {
+            min-width: 680px !important;  /* 宽度设为 iPhone 17 的 ~1.6倍 */
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+            overflow-x: visible !important; /* 允许超出屏幕 */
         }
+        
+        /* 2. 强制 body 允许横向滚动 */
+        html, body {
+            overflow-x: auto !important;
+        }
+
+        /* 3. 强制列布局保持横向 (禁止 Streamlit 自动折叠成竖排) */
+        div[data-testid="stHorizontalBlock"] {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+        }
+        
+        /* 4. 调整列的间距，让视觉不拥挤 */
         div[data-testid="column"] {
-            min-width: 10px !important;     /* 允许列变得很窄，不要被撑大 */
             width: auto !important;
             flex: 1 1 auto !important;
-        }
-        /* 缩小手机上的字号，防止挤爆 */
-        div[data-testid="column"] p, 
-        div[data-testid="column"] span,
-        div[data-testid="column"] div {
-            font-size: 13px !important;
+            padding: 0 5px !important; /* 给列之间加一点呼吸空间 */
         }
     }
 
@@ -85,12 +97,10 @@ st.markdown("""
         padding-bottom: 0px !important;
         line-height: 1 !important;
         border-radius: 4px;
-        min-width: 0px !important; /* 允许按钮在手机上变窄 */
-        padding-left: 5px !important;
-        padding-right: 5px !important;
+        white-space: nowrap !important; /* 防止按钮文字换行 */
     }
     
-    /* 调整列内容的垂直对齐，使其看起来像表格 */
+    /* 垂直居中 */
     div[data-testid="column"] > div {
         display: flex;
         flex-direction: column;
@@ -425,7 +435,7 @@ if check_password():
                 idx_counter += 1
             
             if table_data:
-                # [MODIFICATION 1] No Scrollbar
+                # [MODIFICATION 1] No Scrollbar on Dashboard
                 df_dash = pd.DataFrame(table_data)
                 h_dash = (len(df_dash) + 1) * 35 + 3 
                 st.dataframe(df_dash, use_container_width=True, hide_index=True, height=h_dash)
@@ -538,17 +548,20 @@ if check_password():
                     save_db(st.session_state.db); st.success(f"Saved for {sel_emp}!"); st.rerun()
 
             st.markdown("---")
+            # ------------------------------------------------------------------
+            # 2. PAYSLIP RECORDS (4-COLUMN LAYOUT: No | Name | Amount | Mixed)
+            # ------------------------------------------------------------------
             st.subheader(f"2. Payslip Records ({sel_month} {sel_year})")
             month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
             
-            # --- [CUSTOM EXCEL-LIKE LAYOUT] ---
-            # Columns: No | Name | Net Pay | Status | Actions
-            h1, h2, h3, h4, h5 = st.columns([0.5, 3, 2, 1.5, 1.5])
+            # --- HEADER (定义4列比例) ---
+            # 比例说明: [0.6(序号), 2.8(名字), 2.2(金额), 2.4(状态+操作)]
+            # 这里的宽度在手机上会因为 CSS 强制 680px 而被完美拉开，不再拥挤
+            h1, h2, h3, h4 = st.columns([0.6, 2.8, 2.2, 2.4])
             h1.markdown("**No.**")
             h2.markdown("**Employee**")
             h3.markdown("**Net Pay**")
-            h4.markdown("**Status**")
-            h5.markdown("**Actions**")
+            h4.markdown("**Status**") # 标题只写Status，下面实际包含Action
             st.markdown("<hr style='margin: 5px 0; border: none; border-top: 1px solid #ccc;'>", unsafe_allow_html=True)
 
             idx_counter = 1
@@ -556,43 +569,46 @@ if check_password():
                 emp_static = st.session_state.db['employees'][emp_id]
                 rec = month_recs.get(emp_id)
                 
-                # Create a row container
+                # 使用 Container 保证行结构稳固
                 with st.container():
-                    c1, c2, c3, c4, c5 = st.columns([0.5, 3, 2, 1.5, 1.5])
+                    # 必须和 Header 保持完全一致的比例
+                    c1, c2, c3, c4 = st.columns([0.6, 2.8, 2.2, 2.4])
                     
                     # 1. No.
                     c1.markdown(f"{idx_counter}")
                     
-                    # 2. Name
+                    # 2. Employee Name (保持独立)
                     c2.markdown(f"**{emp_id}**")
                     
                     if rec:
-                        # 3. Net Pay
+                        # 3. Net Pay (保持独立)
                         curr_sym = emp_static['currency'].split('(')[0]
+                        # 如果金额太长，手机上可能会换行，这是正常的
                         c3.markdown(f"{curr_sym} {rec['net_salary']:,.2f}")
                         
-                        # 4. Status
-                        s_color = "green" if rec['status'] == 'Paid' else "orange"
-                        c4.markdown(f":{s_color}[{rec['status']}]")
-                        
-                        # 5. Actions (Nested columns for buttons)
-                        with c5:
+                        # 4. MERGED COLUMN: Status + Actions
+                        with c4:
+                            # 上半部分：状态文字
+                            s_color = "green" if rec['status'] == 'Paid' else "orange"
+                            st.markdown(f":{s_color}[● {rec['status']}]")
+                            
+                            # 下半部分：两个按钮并排
                             b1, b2 = st.columns(2)
-                            # Edit Button
-                            if b1.button("✏️", key=f"edt_{emp_id}"):
-                                st.session_state.edit_target = emp_id
-                                st.rerun()
-                            # Download Button
-                            pdf_bytes = create_pdf(rec, emp_static)
-                            safe_name = emp_id.replace(" ", "_")
-                            b2.download_button("📥", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"dl_{emp_id}")
+                            with b1:
+                                if st.button("✏️", key=f"edt_{emp_id}"):
+                                    st.session_state.edit_target = emp_id
+                                    st.rerun()
+                            with b2:
+                                pdf_bytes = create_pdf(rec, emp_static)
+                                safe_name = emp_id.replace(" ", "_")
+                                st.download_button("📥", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"dl_{emp_id}")
 
                     else:
                         c3.markdown("-")
-                        c4.markdown("Pending")
-                        c5.markdown("-")
+                        with c4:
+                            st.markdown(":grey[Pending]")
                     
-                    # Tight Row Divider
+                    # 极细分割线
                     st.markdown("<hr style='margin: 2px 0; border: none; border-top: 1px solid #e0e0e0;'>", unsafe_allow_html=True)
                     idx_counter += 1
 
@@ -635,7 +651,7 @@ if check_password():
             })
         
         if data_list:
-            # [MODIFICATION 4] No Scrollbar
+            # [MODIFICATION 4] No Scrollbar on Manage Employees
             df = pd.DataFrame(data_list)
             h_manage = (len(df) + 1) * 35 + 3
             edited_df = st.data_editor(
