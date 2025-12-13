@@ -59,19 +59,19 @@ st.markdown("""
     .metric-label { font-size: 14px; font-weight: 500; opacity: 0.9; margin-bottom: 5px; }
     .metric-value { font-size: 28px; font-weight: 700; }
 
-    /* --- STATUS PILLS --- */
-    .pill-paid { 
-        background-color: #e6f4ea; color: #1e7e34; 
-        padding: 3px 10px; border-radius: 20px; 
-        font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
-        display: inline-block;
+    /* --- BUTTON TWEAKS --- */
+    .stButton button {
+        height: 38px;
+        padding-top: 0px !important;
+        padding-bottom: 0px !important;
     }
-    .pill-pending { 
-        background-color: #fff3cd; color: #856404; 
-        padding: 3px 10px; border-radius: 20px; 
-        font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
-        display: inline-block;
+    /* 垂直居中列内容 */
+    [data-testid="column"] {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
+
     .input-label-spacer { height: 28px; } 
 </style>
 """, unsafe_allow_html=True)
@@ -380,7 +380,7 @@ if check_password():
         if st.session_state.db['employees']:
             month_rec_map = {r['employee_id']: r for r in month_recs}
             table_data = []
-            idx_counter = 1 # [FIX] Start from 1
+            idx_counter = 1 
             for emp_id, info in st.session_state.db['employees'].items():
                 if info.get('status') != 'Active' and emp_id not in month_rec_map: continue
                 rec = month_rec_map.get(emp_id)
@@ -399,8 +399,9 @@ if check_password():
                 idx_counter += 1
             
             if table_data:
-                # [FIX] hide_index=True 隐藏默认的0,1,2，显示我们自定义的 No.
-                st.dataframe(pd.DataFrame(table_data), use_container_width=False, hide_index=True)
+                # [FIX] Auto-Height Formula (彻底去除内部滚动条)
+                d_height = (len(table_data) + 1) * 35 + 3
+                st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True, height=d_height)
             else:
                 st.info("No data available.")
         else: st.info("No data available.")
@@ -445,32 +446,11 @@ if check_password():
 
         st.markdown("<div style='margin-bottom: 5px'></div>", unsafe_allow_html=True)
 
+        # 1. WORKBENCH (Hidden unless editing)
         all_emps = [e_id for e_id, e_data in st.session_state.db['employees'].items() if e_data.get('status', 'Active') == 'Active']
-        
-        if not all_emps: st.warning("No 'Active' employees found.")
-        else:
-            st.subheader("1. Workbench (Edit/Create)")
-            c_emp1, c_emp2 = st.columns([1, 2])
-            edit_target_id = st.session_state.get('edit_target')
-            try: sel_idx = all_emps.index(edit_target_id) if edit_target_id in all_emps else 0
-            except: sel_idx = 0
-            with c_emp1: sel_emp = st.selectbox("Select Employee:", all_emps, index=sel_idx)
-            
-            if edit_target_id and sel_emp != edit_target_id:
-                st.session_state.edit_target = None
-                st.rerun()
-
-            emp_leaves = [l for l in st.session_state.db['leave_records'] if l['employee_id'] == sel_emp]
-            leave_txt = "No recent leaves."
-            if emp_leaves:
-                l_df = pd.DataFrame(emp_leaves); l_df['dt'] = pd.to_datetime(l_df['date'])
-                last_leave = l_df.sort_values('dt', ascending=False).iloc[0]
-                leave_txt = f"Recent: {last_leave['date']} ({last_leave['reason']}, {last_leave['days']}d)"
-            
-            with c_emp2:
-                st.markdown('<div class="input-label-spacer"></div>', unsafe_allow_html=True)
-                st.info(f"Context: {leave_txt}")
-
+        if st.session_state.edit_target:
+            st.subheader(f"Editing: {st.session_state.edit_target}")
+            sel_emp = st.session_state.edit_target
             emp_static = st.session_state.db['employees'][sel_emp]
             last_rec = get_last_record(sel_emp, st.session_state.db)
             curr_rec = next((r for r in st.session_state.db['records'] if r['employee_id'] == sel_emp and r['month_label'] == sel_month and str(sel_year) in r['payment_date']), None)
@@ -482,7 +462,6 @@ if check_password():
             rem_val = curr_rec.get('remarks', "") if curr_rec else ""
             default_rate = st.session_state.db['settings']['usd_rate']
             saved_rate = curr_rec.get('exchange_rate', default_rate) if curr_rec else default_rate
-            
             try: val_date = datetime.strptime(curr_rec['payment_date'], "%Y-%m-%d").date() if curr_rec else date.today()
             except: val_date = date.today()
 
@@ -495,10 +474,13 @@ if check_password():
                 with ce1: st.caption("Earnings (+)"); e_earn = st.data_editor(pd.DataFrame(d_earn), num_rows="dynamic", key=f"e_{sel_emp}", column_config={"Amount": st.column_config.NumberColumn(format="%.2f")}, use_container_width=True)
                 with ce2: st.caption("Deductions (-)"); e_deduct = st.data_editor(pd.DataFrame(d_deduct), num_rows="dynamic", key=f"d_{sel_emp}", column_config={"Amount": st.column_config.NumberColumn(format="%.2f")}, use_container_width=True)
                 cr1, cr2 = st.columns([3, 1])
-                rem = cr1.text_input("Remarks (Press Enter to Save)", value=rem_val)
+                rem = cr1.text_input("Remarks", value=rem_val)
                 pay_date = cr2.date_input("Payment Date", value=val_date)
                 
-                if st.form_submit_button("💾 Save Calculation", type="primary"):
+                c_cancel, c_save = st.columns([1, 5])
+                if c_cancel.form_submit_button("Cancel"):
+                    st.session_state.edit_target = None; st.rerun()
+                if c_save.form_submit_button("💾 Save Calculation", type="primary"):
                     net = e_earn['Amount'].sum() - e_deduct['Amount'].sum()
                     st.session_state.db['records'] = [r for r in st.session_state.db['records'] if not (r['employee_id'] == sel_emp and r['month_label'] == sel_month and str(sel_year) in r['payment_date'])]
                     st.session_state.db['records'].append({
@@ -508,64 +490,64 @@ if check_password():
                     })
                     st.session_state.edit_target = None
                     save_db(st.session_state.db); st.success(f"Saved for {sel_emp}!"); st.rerun()
-
             st.markdown("---")
-            st.subheader(f"2. Payslip Records ({sel_month} {sel_year})")
-            month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
+
+        # 2. PAYSLIP RECORDS (NEW EXCEL-LIKE LIST VIEW)
+        st.subheader(f"Payslip Records ({sel_month} {sel_year})")
+        month_recs = {r['employee_id']: r for r in st.session_state.db['records'] if r['month_label'] == sel_month and str(sel_year) in r['payment_date']}
+        
+        # --- HEADER ROW (Aligned Layout) ---
+        # Layout: No(0.5) | Name(3) | Net Pay(2) | Status(1.5) | Edit(0.8) | PDF(0.8)
+        h1, h2, h3, h4, h5, h6 = st.columns([0.5, 3, 2, 1.5, 0.8, 0.8])
+        h1.markdown("**No.**")
+        h2.markdown("**Employee**")
+        h3.markdown("**Net Pay**")
+        h4.markdown("**Status**")
+        h5.markdown("") # Edit placeholder
+        h6.markdown("") # PDF placeholder
+        st.divider()
+
+        idx_counter = 1
+        for emp_id in all_emps:
+            emp_static = st.session_state.db['employees'][emp_id]
+            rec = month_recs.get(emp_id)
             
-            # --- PAYSLIP TABLE ---
-            table_rows = []
-            idx_counter = 1 # [FIX] Start from 1
-            for emp_id in all_emps:
-                emp_static = st.session_state.db['employees'][emp_id]
-                rec = month_recs.get(emp_id)
+            with st.container():
+                c1, c2, c3, c4, c5, c6 = st.columns([0.5, 3, 2, 1.5, 0.8, 0.8])
+                
+                # 1. Number
+                c1.text(f"{idx_counter}")
+                
+                # 2. Name (Bold)
+                c2.markdown(f"**{emp_id}**")
                 
                 if rec:
                     curr_sym = emp_static['currency'].split('(')[0]
-                    row = {
-                        "No.": idx_counter,
-                        "Employee": emp_id,
-                        "Net Pay": f"{curr_sym} {rec['net_salary']:,.2f}",
-                        "Date": format_date_short(rec["payment_date"]),
-                        "Status": "✅ Paid" if rec['status'] == 'Paid' else "⏳ Pending"
-                    }
+                    # 3. Net Pay (Left Aligned)
+                    c3.text(f"{curr_sym} {rec['net_salary']:,.2f}")
+                    
+                    # 4. Status (Colored)
+                    status_color = "green" if rec['status'] == 'Paid' else "orange"
+                    c4.markdown(f":{status_color}[● {rec['status']}]")
+
+                    # 5. EDIT Button
+                    if c5.button("✏️", key=f"edt_{emp_id}"):
+                        st.session_state.edit_target = emp_id
+                        st.rerun()
+
+                    # 6. DOWNLOAD Button
+                    pdf_bytes = create_pdf(rec, emp_static)
+                    safe_name = emp_id.replace(" ", "_")
+                    c6.download_button("📥", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"dl_{emp_id}")
+                
                 else:
-                    row = {
-                        "No.": idx_counter,
-                        "Employee": emp_id,
-                        "Net Pay": "-",
-                        "Date": "-",
-                        "Status": "Unprocessed"
-                    }
-                table_rows.append(row)
+                    c3.text("-")
+                    c4.text("Pending")
+                    c5.text("-")
+                    c6.text("-")
+                
+                st.divider()
                 idx_counter += 1
-            
-            # Overview Table
-            if table_rows:
-                st.dataframe(pd.DataFrame(table_rows), use_container_width=False, hide_index=True)
-            
-            # Actions Area
-            st.markdown("### 🛠️ Actions (Manage)")
-            for emp_id in all_emps:
-                if emp_id in month_recs:
-                    rec = month_recs[emp_id]
-                    with st.expander(f"Manage: {emp_id}"):
-                        # [FIX] Buttons side-by-side [1, 1, 5] ratio
-                        c_a, c_b, c_space = st.columns([1, 1, 5])
-                        
-                        if c_a.button("Edit", key=f"edt_{emp_id}"): 
-                            st.session_state.edit_target = emp_id; st.rerun()
-                        
-                        pdf_bytes = create_pdf(rec, st.session_state.db['employees'][emp_id])
-                        safe_name = emp_id.replace(" ", "_")
-                        c_b.download_button("Download", data=pdf_bytes, file_name=f"Payslip_{safe_name}.pdf", mime="application/pdf", key=f"btn_{emp_id}")
-                        
-                        is_paid = (rec['status'] == 'Paid')
-                        def update_status(rid=rec['id']):
-                            for r in st.session_state.db['records']:
-                                if r['id'] == rid: r['status'] = 'Unpaid' if r['status'] == 'Paid' else 'Paid'
-                            save_db(st.session_state.db)
-                        st.checkbox("Mark as Paid", value=is_paid, key=f"chk_{emp_id}", on_change=update_status, args=(rec['id'],))
 
     # --- MANAGE EMPLOYEES ---
     elif page == "Manage Employees":
@@ -594,30 +576,26 @@ if check_password():
             inc_txt = f"{e['last_increment']['date']} (+{e['last_increment']['percentage']}%)" if e.get("last_increment") else "-"
             bon_txt = f"{e['last_bonus']['year']}: {e['last_bonus']['amount']:,.0f}" if e.get("last_bonus") else "-"
             st_flag = "🟢" if e.get('status') == 'Active' else "⚪"
-            dob_txt = e.get('date_of_birth', '-')
-
             data_list.append({
                 "Status": st_flag, "Name": e['name'], "Role": e['designation'],
                 "Basic Salary": e.get('basic_salary', 0.0), "Join Date": e['join_date'],
-                "Tenure": calculate_tenure(e['join_date']), "Date of Birth": dob_txt,
-                "Last Increment": inc_txt, "Last Bonus": bon_txt,
-                "Remark": e.get('master_remark', ''), "✏️": False, "🗑️": False
+                "Date of Birth": e.get('date_of_birth', '-'), "Remark": e.get('master_remark', ''), 
+                "✏️": False, "🗑️": False
             })
         
         if data_list:
             df = pd.DataFrame(data_list)
+            # [FIX] Auto-Height Formula (彻底去除内部滚动条)
+            m_height = (len(df) + 1) * 35 + 3
             edited_df = st.data_editor(
-                df, use_container_width=False,
+                df, use_container_width=True, height=m_height,
                 column_config={
-                    "Status": st.column_config.TextColumn(width="small", help="Green=Active, Grey=Inactive"),
+                    "Status": st.column_config.TextColumn(width="small"),
                     "Basic Salary": st.column_config.NumberColumn(format="%.2f", disabled=True),
                     "Join Date": st.column_config.TextColumn(disabled=True),
                     "Date of Birth": st.column_config.TextColumn(disabled=True),
-                    "Last Increment": st.column_config.TextColumn(disabled=True),
-                    "Last Bonus": st.column_config.TextColumn(disabled=True),
-                    "Tenure": st.column_config.TextColumn(help="YearsMonths", disabled=True),
-                    "✏️": st.column_config.CheckboxColumn(label="✏️", help="Edit Details"),
-                    "🗑️": st.column_config.CheckboxColumn(label="🗑️", help="Delete Employee")
+                    "✏️": st.column_config.CheckboxColumn(label="✏️", help="Edit"),
+                    "🗑️": st.column_config.CheckboxColumn(label="🗑️", help="Delete")
                 },
                 disabled=["Status", "Name", "Role"], hide_index=True
             )
@@ -661,7 +639,6 @@ if check_password():
                         
                         try: def_dob = datetime.strptime(curr_data.get('date_of_birth', ''), "%d %b %Y").date()
                         except: def_dob = date.today()
-                        # [DATE FIX]
                         new_dob = st.date_input("Date of Birth", value=def_dob, min_value=date(1900,1,1), max_value=date.today())
 
                         st.markdown("**Last Increment**"); ci1, ci2 = st.columns(2)
@@ -685,7 +662,6 @@ if check_password():
                             if new_inc_pct > 0: curr_data['last_increment'] = {"date": new_inc_date.strftime("%d %b %Y"), "percentage": new_inc_pct}
                             if new_bon_amt > 0: curr_data['last_bonus'] = {"year": int(new_bon_year), "amount": new_bon_amt}
                             save_db(st.session_state.db); st.success("Updated!"); st.rerun()
-        else: st.info("No employees found.")
 
     elif page == "⚙️ Settings":
         st.header("System Settings")
