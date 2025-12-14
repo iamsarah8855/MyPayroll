@@ -164,21 +164,20 @@ if check_password():
     # 2. MAIN APPLICATION
     # ==========================================
     
-    # [FIX 1] 强力数字清洗函数：处理 NaN, Inf, 和字符串 "nan"
+    # [FIX 1] 强力数字清洗函数
     def safe_float(val):
         try:
             if val is None: return 0.0
             if isinstance(val, (float, int)):
                 if np.isnan(val) or np.isinf(val): return 0.0
                 return float(val)
-            # 处理字符串形式的 'nan'
             val_str = str(val).strip().lower()
             if val_str in ['nan', 'inf', '-inf', 'none', '']: return 0.0
             return float(val)
         except:
             return 0.0
 
-    # [FIX 2] 列表清洗函数：钻进 Earnings/Deductions 内部清洗 NaN
+    # [FIX 2] 列表清洗函数
     def clean_list_for_json(data_list):
         if not isinstance(data_list, list): return "[]"
         cleaned_list = []
@@ -187,7 +186,7 @@ if check_password():
                 new_item = {}
                 for k, v in item.items():
                     if k == 'Amount':
-                        new_item[k] = safe_float(v) # 强制清洗金额
+                        new_item[k] = safe_float(v)
                     else:
                         new_item[k] = str(v) if v is not None else ""
                 cleaned_list.append(new_item)
@@ -250,11 +249,9 @@ if check_password():
             return default_db
 
     def save_db(data):
-        # 1. Update Settings
         df_set = pd.DataFrame([{"usd_rate": safe_float(data['settings']['usd_rate'])}])
         conn.update(worksheet="Settings", data=df_set)
 
-        # 2. Update Employees
         emp_list = []
         for name, info in data['employees'].items():
             emp_list.append({
@@ -271,20 +268,14 @@ if check_password():
                 "last_increment": json.dumps(info['last_increment']) if info['last_increment'] else None,
                 "last_bonus": json.dumps(info['last_bonus']) if info['last_bonus'] else None
             })
-        
         if emp_list:
             df_emp = pd.DataFrame(emp_list).fillna("")
             conn.update(worksheet="Employees", data=df_emp)
         
-        # 3. Update Records
         rec_list = []
         for r in data['records']:
-            # Sanitize numeric fields
             clean_net = safe_float(r['net_salary'])
             clean_rate = safe_float(r['exchange_rate'])
-            
-            # [CRITICAL FIX] Use clean_list_for_json instead of plain json.dumps
-            # This prevents "NaN" strings inside the JSON which crashes Google Sheets
             rec_list.append({
                 "id": r['id'],
                 "employee_id": r['employee_id'],
@@ -339,7 +330,7 @@ if check_password():
     if "db" not in st.session_state: st.session_state.db = load_db()
     if "edit_target" not in st.session_state: st.session_state.edit_target = None
 
-    # --- PDF GENERATOR ---
+    # --- PDF GENERATOR (MODIFIED: Payment Date Removed) ---
     def create_pdf(record, emp_static):
         pdf = FPDF(orientation='P', unit='mm', format='A4')
         pdf.add_page()
@@ -350,14 +341,14 @@ if check_password():
         pay_year = record['payment_date'].split('-')[0]
         pdf.cell(0, 8, f"PAYSLIP FOR {record['month_label'].upper()} {pay_year}", 0, 1, 'C'); pdf.ln(15)
         pdf.set_text_color(*COLOR_TEXT); y_start = pdf.get_y(); left_x, right_x = 15, 110; line_h = 7
-        fmt_date = format_date_short(record['payment_date'])
         
+        # Left Side (Name, Designation, Join Date)
         pdf.set_xy(left_x, y_start); pdf.set_font("Arial", 'B', 10); pdf.cell(35, line_h, "Name", 0, 0); pdf.set_font("Arial", '', 10); pdf.cell(50, line_h, f": {emp_static['name']}", 0, 1)
         pdf.set_x(left_x); pdf.set_font("Arial", 'B', 10); pdf.cell(35, line_h, "Designation", 0, 0); pdf.set_font("Arial", '', 10); pdf.cell(50, line_h, f": {emp_static['designation']}", 0, 1)
         pdf.set_x(left_x); pdf.set_font("Arial", 'B', 10); pdf.cell(35, line_h, "Join Date", 0, 0); pdf.set_font("Arial", '', 10); pdf.cell(50, line_h, f": {emp_static['join_date']}", 0, 1)
         
-        pdf.set_xy(right_x, y_start); pdf.set_font("Arial", 'B', 10); pdf.cell(35, line_h, "Payment Date", 0, 0); pdf.set_font("Arial", '', 10); pdf.cell(50, line_h, f": {fmt_date}", 0, 1)
-        pdf.set_x(right_x); pdf.set_font("Arial", 'B', 10); pdf.cell(35, line_h, "Currency", 0, 0); pdf.set_font("Arial", '', 10); pdf.cell(50, line_h, f": {emp_static['currency']}", 0, 1)
+        # Right Side (MOVED UP: Currency, Bank, Account No - Payment Date Removed)
+        pdf.set_xy(right_x, y_start); pdf.set_font("Arial", 'B', 10); pdf.cell(35, line_h, "Currency", 0, 0); pdf.set_font("Arial", '', 10); pdf.cell(50, line_h, f": {emp_static['currency']}", 0, 1)
         pdf.set_x(right_x); pdf.set_font("Arial", 'B', 10); pdf.cell(35, line_h, "Bank Name", 0, 0); pdf.set_font("Arial", '', 10); pdf.cell(50, line_h, f": {emp_static['bank_name']}", 0, 1)
         pdf.set_x(right_x); pdf.set_font("Arial", 'B', 10); pdf.cell(35, line_h, "Account No.", 0, 0); pdf.set_font("Arial", '', 10); pdf.cell(50, line_h, f": {emp_static['account_number']}", 0, 1)
         
