@@ -582,8 +582,22 @@ if check_password():
                 rem = cr1.text_input("Remarks (Press Enter to Save)", value=rem_val)
                 pay_date = cr2.date_input("Payment Date", value=val_date)
                 
+                # [NEW] NET PAYABLE CALCULATION DISPLAY
+                calc_earn = e_earn['Amount'].sum()
+                calc_deduct = e_deduct['Amount'].sum()
+                calc_net = calc_earn - calc_deduct
+                disp_curr = emp_static['currency'].split('(')[0].strip()
+                
+                st.markdown(f"""
+                <div style="background-color: #f0f2f6; padding: 15px; border-radius: 8px; text-align: right; margin-bottom: 10px; border: 1px solid #e0e0e0;">
+                    <span style="font-size: 14px; color: #555; margin-right: 15px;">Total Earnings: {disp_curr} {calc_earn:,.2f}</span>
+                    <span style="font-size: 14px; color: #555; margin-right: 15px;">Total Deductions: -{disp_curr} {calc_deduct:,.2f}</span>
+                    <span style="font-size: 18px; font-weight: 700; color: #1f77b4;">💰 Net Payable: {disp_curr} {calc_net:,.2f}</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
                 if st.form_submit_button("💾 Save Calculation", type="primary"):
-                    net = e_earn['Amount'].sum() - e_deduct['Amount'].sum()
+                    net = calc_net
                     st.session_state.db['records'] = [r for r in st.session_state.db['records'] if not (r['employee_id'] == sel_emp and r['month_label'] == sel_month and str(sel_year) in r['payment_date'])]
                     st.session_state.db['records'].append({
                         "id": f"{sel_emp}_{sel_month}_{sel_year}", "employee_id": sel_emp, "month_label": sel_month, "payment_date": str(pay_date),
