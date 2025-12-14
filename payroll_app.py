@@ -164,14 +164,34 @@ if check_password():
     # 2. MAIN APPLICATION
     # ==========================================
     
-    # [FIX] Helper function to sanitize floats and prevent API Errors
+    # [FIX 1] 强力数字清洗函数：处理 NaN, Inf, 和字符串 "nan"
     def safe_float(val):
         try:
-            if pd.isna(val) or val is None: return 0.0
-            f = float(val)
-            if np.isinf(f) or np.isnan(f): return 0.0
-            return f
-        except: return 0.0
+            if val is None: return 0.0
+            if isinstance(val, (float, int)):
+                if np.isnan(val) or np.isinf(val): return 0.0
+                return float(val)
+            # 处理字符串形式的 'nan'
+            val_str = str(val).strip().lower()
+            if val_str in ['nan', 'inf', '-inf', 'none', '']: return 0.0
+            return float(val)
+        except:
+            return 0.0
+
+    # [FIX 2] 列表清洗函数：钻进 Earnings/Deductions 内部清洗 NaN
+    def clean_list_for_json(data_list):
+        if not isinstance(data_list, list): return "[]"
+        cleaned_list = []
+        for item in data_list:
+            if isinstance(item, dict):
+                new_item = {}
+                for k, v in item.items():
+                    if k == 'Amount':
+                        new_item[k] = safe_float(v) # 强制清洗金额
+                    else:
+                        new_item[k] = str(v) if v is not None else ""
+                cleaned_list.append(new_item)
+        return json.dumps(cleaned_list)
 
     def load_db():
         default_db = {"employees": {}, "records": [], "leave_records": [], "settings": {"usd_rate": 4.45}}
@@ -230,10 +250,11 @@ if check_password():
             return default_db
 
     def save_db(data):
-        # [CRITICAL FIX] Sanitize data before saving to prevent gspread errors
+        # 1. Update Settings
         df_set = pd.DataFrame([{"usd_rate": safe_float(data['settings']['usd_rate'])}])
         conn.update(worksheet="Settings", data=df_set)
 
+        # 2. Update Employees
         emp_list = []
         for name, info in data['employees'].items():
             emp_list.append({
@@ -250,23 +271,27 @@ if check_password():
                 "last_increment": json.dumps(info['last_increment']) if info['last_increment'] else None,
                 "last_bonus": json.dumps(info['last_bonus']) if info['last_bonus'] else None
             })
+        
         if emp_list:
             df_emp = pd.DataFrame(emp_list).fillna("")
             conn.update(worksheet="Employees", data=df_emp)
         
+        # 3. Update Records
         rec_list = []
         for r in data['records']:
-            # Sanitize numeric fields specifically
+            # Sanitize numeric fields
             clean_net = safe_float(r['net_salary'])
             clean_rate = safe_float(r['exchange_rate'])
             
+            # [CRITICAL FIX] Use clean_list_for_json instead of plain json.dumps
+            # This prevents "NaN" strings inside the JSON which crashes Google Sheets
             rec_list.append({
                 "id": r['id'],
                 "employee_id": r['employee_id'],
                 "month_label": r['month_label'],
                 "payment_date": r['payment_date'],
-                "earnings_list": json.dumps(r['earnings_list']),
-                "deductions_list": json.dumps(r['deductions_list']),
+                "earnings_list": clean_list_for_json(r['earnings_list']),
+                "deductions_list": clean_list_for_json(r['deductions_list']),
                 "net_salary": clean_net,
                 "currency": r['currency'],
                 "remarks": r['remarks'],
@@ -281,7 +306,6 @@ if check_password():
     def get_last_record(emp_id, db):
         emp_records = [r for r in db['records'] if r['employee_id'] == emp_id]
         if not emp_records: return None
-        # [FIX] Sort by Date to ensure January 2026 comes after December 2025
         return sorted(emp_records, key=lambda x: x['payment_date'])[-1]
 
     def convert_record_to_myr(record, default_rate):
