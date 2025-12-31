@@ -215,7 +215,7 @@ if check_password():
                         "date_of_birth": row['date_of_birth'],
                         "currency": row['currency'],
                         "bank_name": row['bank_name'],
-                        "account_number": str(row['account_number']),
+                        "account_number": str(row['account_number']).split('.')[0] if pd.notna(row['account_number']) else "",
                         "basic_salary": safe_float(row['basic_salary']),
                         "status": row['status'],
                         "master_remark": row['master_remark'] if pd.notna(row['master_remark']) else "",
